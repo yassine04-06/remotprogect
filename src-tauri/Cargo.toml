@@ -1,0 +1,53 @@
+[package]
+name = "remote-manager"
+version = "1.0.0"
+description = "Nexus — Remote Connection Manager"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "remote_manager_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+aes-gcm = "0.10"
+pbkdf2 = { version = "0.12", features = ["simple"] }
+sha2 = "0.10"
+hmac = "0.12"
+rand = "0.8"
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
+dirs = "5"
+zeroize = { version = "1", features = ["derive"] }
+dashmap = "6"
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+env_logger = "0.11"
+thiserror = "1"
+portable-pty = "0.8"
+suppaftp = "8.0.2"
+ssh2 = "0.9.5"
+tauri-plugin-dialog = "2.6.0"
+reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
+lazy_static = "1.4"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+# Optimize release builds for size and speed
+[profile.release]
+panic = "abort" # Strip expensive panic clean-up logic
+codegen-units = 1 # Compile crates one after another so the compiler can optimize better
+lto = true # Enables link to optimizations
+opt-level = "s" # Optimize for binary size
+strip = true # Remove debug symbols
