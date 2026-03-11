@@ -12,7 +12,8 @@ mod proxmox;
 mod docker;
 
 use crate::database::{
-    CreateConnectionRequest, CreateSavedCommandRequest, ExportData, UpdateConnectionRequest, UpdateSavedCommandRequest,
+    CreateConnectionRequest, CreateSavedCommandRequest, ExportData,
+    UpdateConnectionRequest, UpdateSavedCommandRequest,
 };
 use crate::state::AppState;
 use dashmap::DashMap;
@@ -51,15 +52,13 @@ fn set_master_password(
     let key = encryption::derive_key(&request.password, &salt);
     let token = encryption::create_verification_token(&key)?;
 
-    // Save config
     let config = serde_json::json!({
         "salt": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &salt),
         "verification_token": token,
     });
     std::fs::write(&state.config_path, serde_json::to_string_pretty(&config).unwrap())
-        .map_err(|e| format!("Failed to save config: {}", e))?;
+        .map_err(|e| format!("Impossibile salvare la configurazione: {}", e))?;
 
-    // Update state
     *state.encryption_key.write().unwrap() = Some(key);
     *state.salt.write().unwrap() = Some(salt.to_vec());
     *state.verification_token.write().unwrap() = Some(token);
@@ -80,17 +79,15 @@ fn unlock_vault(
     let salt_guard = state.salt.read().unwrap();
     let salt = salt_guard
         .as_ref()
-        .ok_or("No vault configured — please set a master password first")?;
+        .ok_or("Vault non configurato — imposta prima una master password")?;
 
     let key = encryption::derive_key(&request.password, salt);
 
     let token_guard = state.verification_token.read().unwrap();
-    let token = token_guard
-        .as_ref()
-        .ok_or("No verification token found")?;
+    let token = token_guard.as_ref().ok_or("Token di verifica assente")?;
 
     if !encryption::verify_master_password(token, &key) {
-        return Err("Invalid master password".to_string());
+        return Err("Master password errata".to_string());
     }
 
     *state.encryption_key.write().unwrap() = Some(key);
@@ -102,19 +99,17 @@ fn lock_vault(state: tauri::State<AppState>) {
     *state.encryption_key.write().unwrap() = None;
 }
 
-// ── Encryption helpers (called from frontend before storing) ──
-
 #[tauri::command]
 fn encrypt_value(state: tauri::State<AppState>, plaintext: String) -> Result<String, String> {
     let key_guard = state.encryption_key.read().unwrap();
-    let key = key_guard.as_ref().ok_or("Vault is locked")?;
+    let key = key_guard.as_ref().ok_or("Vault bloccato")?;
     encryption::encrypt(&plaintext, key)
 }
 
 #[tauri::command]
 fn decrypt_value(state: tauri::State<AppState>, ciphertext: String) -> Result<String, String> {
     let key_guard = state.encryption_key.read().unwrap();
-    let key = key_guard.as_ref().ok_or("Vault is locked")?;
+    let key = key_guard.as_ref().ok_or("Vault bloccato")?;
     encryption::decrypt(&ciphertext, key)
 }
 
@@ -145,9 +140,7 @@ fn delete_connection(state: tauri::State<AppState>, id: String) -> Result<(), St
 }
 
 #[tauri::command]
-fn get_connections(
-    state: tauri::State<AppState>,
-) -> Result<Vec<database::ServerConnection>, String> {
+fn get_connections(state: tauri::State<AppState>) -> Result<Vec<database::ServerConnection>, String> {
     let conn = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
     database::get_connections(&conn)
 }
@@ -229,20 +222,12 @@ fn delete_saved_command(state: tauri::State<AppState>, id: String) -> Result<(),
 }
 
 // ── SSH Commands ─────────────────────────────────────────
-
-use std::collections::HashMap;
-use std::sync::OnceLock;
-
-// Global SSH sessions store (since SshSession isn't Send-safe for Tauri state)
-static SSH_SESSIONS: OnceLock<Mutex<HashMap<String, ssh::SshSession>>> = OnceLock::new();
-
-fn get_ssh_sessions() -> &'static Mutex<HashMap<String, ssh::SshSession>> {
-    SSH_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
-}
+// FIX: le sessioni sono ora in AppState invece di OnceLock globali.
 
 #[tauri::command]
 fn ssh_connect(
     app: tauri::AppHandle,
+    state: tauri::State<AppState>,
     session_id: String,
     host: String,
     port: i32,
@@ -251,12 +236,8 @@ fn ssh_connect(
     private_key_path: Option<String>,
     ssh_tunnels: Option<Vec<database::SshTunnel>>,
 ) -> Result<(), String> {
-    let sessions = get_ssh_sessions();
-    let mut map = sessions.lock().map_err(|_| "Lock error")?;
-    
-    // Prevent double-connect if same session ID is already active
-    if map.contains_key(&session_id) {
-        return Ok(());
+    if state.ssh_sessions.contains_key(&session_id) {
+        return Ok(()); // Sessione già attiva
     }
 
     let session = ssh::ssh_connect(
@@ -270,75 +251,76 @@ fn ssh_connect(
         ssh_tunnels,
     )?;
 
-    map.insert(session_id, session);
+    state.ssh_sessions.insert(session_id, session);
     Ok(())
 }
 
 #[tauri::command]
-fn ssh_send_input(session_id: String, data: String) -> Result<(), String> {
-    let sessions = get_ssh_sessions();
-    let map = sessions.lock().map_err(|_| "Lock error")?;
-    let session = map.get(&session_id).ok_or("Session not found")?;
-    ssh::ssh_send_input(session, &data)
+fn ssh_send_input(
+    state: tauri::State<AppState>,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
+    let session = state.ssh_sessions
+        .get(&session_id)
+        .ok_or("Sessione SSH non trovata")?;
+    ssh::ssh_send_input(&session, &data)
 }
 
 #[tauri::command]
-fn ssh_disconnect(session_id: String) -> Result<(), String> {
-    let sessions = get_ssh_sessions();
-    let mut map = sessions.lock().map_err(|_| "Lock error")?;
-    if let Some(session) = map.remove(&session_id) {
+fn ssh_disconnect(state: tauri::State<AppState>, session_id: String) -> Result<(), String> {
+    if let Some((_, session)) = state.ssh_sessions.remove(&session_id) {
         ssh::ssh_disconnect(&session)?;
     }
     Ok(())
 }
 
 // ── Local Shell Commands ─────────────────────────────────
-
-static SHELL_SESSIONS: OnceLock<Mutex<HashMap<String, local_shell::LocalShellSession>>> = OnceLock::new();
-
-fn get_shell_sessions() -> &'static Mutex<HashMap<String, local_shell::LocalShellSession>> {
-    SHELL_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
-}
+// FIX: idem — sessioni in AppState.
 
 #[tauri::command]
 fn shell_spawn(
     app: tauri::AppHandle,
+    state: tauri::State<AppState>,
     session_id: String,
 ) -> Result<(), String> {
-    let sessions = get_shell_sessions();
-    let mut map = sessions.lock().map_err(|_| "Lock error")?;
-    if map.contains_key(&session_id) {
+    if state.shell_sessions.contains_key(&session_id) {
         return Ok(());
     }
     let session = local_shell::spawn_local_shell(&app, &session_id)?;
-    map.insert(session_id, session);
+    state.shell_sessions.insert(session_id, session);
     Ok(())
 }
 
 #[tauri::command]
-fn shell_send_input(session_id: String, data: String) -> Result<(), String> {
-    let sessions = get_shell_sessions();
-    let map = sessions.lock().map_err(|_| "Lock error")?;
-    let session = map.get(&session_id).ok_or("Shell session not found")?;
-    local_shell::shell_send_input(session, &data)
+fn shell_send_input(
+    state: tauri::State<AppState>,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
+    let session = state.shell_sessions
+        .get(&session_id)
+        .ok_or("Sessione shell non trovata")?;
+    local_shell::shell_send_input(&session, &data)
 }
 
 #[tauri::command]
-fn shell_disconnect(session_id: String) -> Result<(), String> {
-    let sessions = get_shell_sessions();
-    let mut map = sessions.lock().map_err(|_| "Lock error")?;
-    if let Some(session) = map.remove(&session_id) {
+fn shell_disconnect(state: tauri::State<AppState>, session_id: String) -> Result<(), String> {
+    if let Some((_, session)) = state.shell_sessions.remove(&session_id) {
         local_shell::shell_disconnect(&session)?;
     }
     Ok(())
 }
 
 #[tauri::command]
-fn shell_resize(session_id: String, rows: u16, cols: u16) -> Result<(), String> {
-    let sessions = get_shell_sessions();
-    let map = sessions.lock().map_err(|_| "Lock error")?;
-    if let Some(session) = map.get(&session_id) {
-        local_shell::shell_resize(session, rows, cols)?;
+fn shell_resize(
+    state: tauri::State<AppState>,
+    session_id: String,
+    rows: u16,
+    cols: u16,
+) -> Result<(), String> {
+    if let Some(session) = state.shell_sessions.get(&session_id) {
+        local_shell::shell_resize(&session, rows, cols)?;
     }
     Ok(())
 }
@@ -367,7 +349,11 @@ fn rdp_connect(
     printers: bool,
     drives: bool,
 ) -> Result<String, String> {
-    let (sid, child) = rdp::launch_rdp(&host, port, &username, &password, width, height, fullscreen, &domain, color_depth, audio, printers, drives)?;
+    let (sid, child) = rdp::launch_rdp(
+        &host, port, &username, &password,
+        width, height, fullscreen, &domain,
+        color_depth, audio, printers, drives,
+    )?;
     state.rdp_processes.insert(session_id.clone(), child);
     Ok(sid)
 }
@@ -384,29 +370,24 @@ fn rdp_disconnect(state: tauri::State<AppState>, session_id: String) -> Result<(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Setup data directory
     let data_dir = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("nexus-remote-manager");
-    std::fs::create_dir_all(&data_dir).expect("Failed to create data directory");
+    std::fs::create_dir_all(&data_dir).expect("Impossibile creare la directory dati");
 
     let db_path = data_dir.join("connections.db");
     let config_path = data_dir.join("config.json");
 
-    // Initialize database
     let db = database::initialize_database(db_path.to_str().unwrap())
-        .expect("Failed to initialize database");
+        .expect("Impossibile inizializzare il database");
 
-    // Load config (salt + verification token) if it exists
     let (salt, verification_token) = if config_path.exists() {
         let config_str = std::fs::read_to_string(&config_path).unwrap_or_default();
         if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
             let salt = config["salt"]
                 .as_str()
                 .and_then(|s| base64::Engine::decode(&base64::engine::general_purpose::STANDARD, s).ok());
-            let token = config["verification_token"]
-                .as_str()
-                .map(|s| s.to_string());
+            let token = config["verification_token"].as_str().map(|s| s.to_string());
             (salt, token)
         } else {
             (None, None)
@@ -422,6 +403,9 @@ pub fn run() {
         verification_token: RwLock::new(verification_token),
         config_path: config_path.to_str().unwrap().to_string(),
         rdp_processes: DashMap::new(),
+        // FIX: sessioni SSH e shell inizializzate qui nello stato Tauri
+        ssh_sessions: DashMap::new(),
+        shell_sessions: DashMap::new(),
     };
 
     tauri::Builder::default()
@@ -498,5 +482,5 @@ pub fn run() {
             docker::docker_container_action,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("Errore durante l'esecuzione dell'applicazione Tauri");
 }

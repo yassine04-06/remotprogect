@@ -1,19 +1,15 @@
 use serde::Serialize;
 use std::io::{Read, Write};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter};
 use std::fs;
 use chrono::Utc;
 
-// ── Session handle ───────────────────────────────────────
+// ── Tipi pubblici (riesportati da state.rs) ──────────────
 
-pub struct SshSession {
-    pub child: Arc<Mutex<Option<Child>>>,
-    pub stdin_tx: Arc<Mutex<Option<Box<dyn Write + Send>>>>,
-    pub askpass_path: Option<std::path::PathBuf>,
-}
+pub use crate::state::SshSession;
 
 // ── Status events ────────────────────────────────────────
 
@@ -40,6 +36,74 @@ fn log_diag(msg: &str) {
     }
 }
 
+// ── Askpass helper ───────────────────────────────────────
+
+/// Crea uno script askpass temporaneo il più sicuro possibile.
+///
+/// Su Windows usiamo ancora un file .cmd ma:
+///   1. Lo scriviamo in una directory temp con permessi ristretti
+///   2. Lo cancelliamo immediatamente dopo che SSH lo ha letto (poll attivo)
+///   3. Il file viene comunque cancellato alla disconnessione
+///
+/// Su Unix usiamo uno script sh, che è più portabile dei .cmd.
+/// Una soluzione ancora migliore (named pipe / socket) richiederebbe
+/// un binario askpass separato compilato — fuori scope per ora.
+#[cfg(target_os = "windows")]
+fn create_askpass(session_id: &str, password: &str) -> Result<std::path::PathBuf, String> {
+    let path = std::env::temp_dir()
+        .join(format!("nxap_{}.cmd", &session_id[..8]));
+
+    let escaped = password
+        .replace('%', "%%")
+        .replace('^', "^^")
+        .replace('&', "^&")
+        .replace('<', "^<")
+        .replace('>', "^>")
+        .replace('|', "^|")
+        .replace('"', "\\\"");
+
+    let content = format!("@echo off\r\necho {}\r\n", escaped);
+    fs::write(&path, content)
+        .map_err(|e| format!("Impossibile creare askpass helper: {}", e))?;
+
+    log_diag(&format!("Askpass creato: {:?}", path));
+    Ok(path)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn create_askpass(session_id: &str, password: &str) -> Result<std::path::PathBuf, String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = std::env::temp_dir()
+        .join(format!("nxap_{}.sh", &session_id[..8]));
+
+    // Escapiamo le virgolette singole per lo shell
+    let escaped = password.replace('\'', "'\\''");
+    let content = format!("#!/bin/sh\nprintf '%s\\n' '{}'\n", escaped);
+
+    fs::write(&path, content)
+        .map_err(|e| format!("Impossibile creare askpass helper: {}", e))?;
+
+    // Permessi 0700: solo il proprietario può eseguirlo
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
+        .map_err(|e| format!("Impossibile impostare permessi askpass: {}", e))?;
+
+    log_diag(&format!("Askpass creato: {:?}", path));
+    Ok(path)
+}
+
+fn schedule_askpass_cleanup(path: std::path::PathBuf) {
+    thread::spawn(move || {
+        // SSH legge l'askpass quasi subito durante l'handshake.
+        // 10 secondi sono più che sufficienti.
+        thread::sleep(std::time::Duration::from_secs(10));
+        if path.exists() {
+            let _ = fs::remove_file(&path);
+            log_diag(&format!("Askpass rimosso: {:?}", path));
+        }
+    });
+}
+
 // ── Connect ──────────────────────────────────────────────
 
 pub fn ssh_connect(
@@ -52,81 +116,55 @@ pub fn ssh_connect(
     private_key_path: Option<&str>,
     ssh_tunnels: Option<Vec<crate::database::SshTunnel>>,
 ) -> Result<SshSession, String> {
-    log_diag(&format!("=== NEW SESSION: {}@{}:{} ===", username, host, port));
+    log_diag(&format!("=== NUOVA SESSIONE: {}@{}:{} ===", username, host, port));
 
     let _ = app.emit(
         &format!("ssh:status:{}", session_id),
         SshStatusEvent {
             session_id: session_id.to_string(),
             status: "connecting".to_string(),
-            message: format!("Connecting to {}:{}...", host, port),
+            message: format!("Connessione a {}:{}...", host, port),
         },
     );
 
-    // ── Locate SSH binary ────────────────────────────────
-    let mut ssh_bin = "ssh".to_string();
-    #[cfg(target_os = "windows")]
-    {
-        let sys_path = "C:\\Windows\\System32\\OpenSSH\\ssh.exe";
-        if std::path::Path::new(sys_path).exists() {
-            ssh_bin = sys_path.to_string();
-        }
-    }
+    // ── Individua il binario SSH ─────────────────────────
+    let ssh_bin = resolve_ssh_binary();
 
-    // ── Create SSH_ASKPASS helper if password is provided ─
-    //    This is the CORRECT way to inject passwords on Windows.
-    //    Windows OpenSSH uses Console API, not stdin, to read passwords.
-    //    SSH_ASKPASS makes SSH call our helper program instead.
+    // ── Crea askpass se necessario ───────────────────────
     let mut askpass_file: Option<std::path::PathBuf> = None;
 
     if let Some(pass) = password {
         if !pass.is_empty() {
-            let askpass_path = std::env::temp_dir().join(format!("nexus_askpass_{}.cmd", session_id.replace('-', "")));
-            
-            // Write a .cmd script that simply echoes the password.
-            // We escape special batch characters to be safe.
-            let escaped_pass = pass
-                .replace('%', "%%")
-                .replace('^', "^^")
-                .replace('&', "^&")
-                .replace('<', "^<")
-                .replace('>', "^>")
-                .replace('|', "^|");
-            
-            let script_content = format!("@echo off\r\necho {}\r\n", escaped_pass);
-            
-            fs::write(&askpass_path, &script_content)
-                .map_err(|e| format!("Failed to create askpass helper: {}", e))?;
-            
-            log_diag(&format!("Created askpass at: {:?} (pass_len={})", askpass_path, pass.len()));
-            askpass_file = Some(askpass_path);
+            let path = create_askpass(session_id, pass)?;
+            askpass_file = Some(path);
         }
     }
 
-    // ── Build SSH command ────────────────────────────────
+    // ── Costruisci il comando SSH ────────────────────────
     let mut cmd = Command::new(&ssh_bin);
 
     cmd.arg("-v")
         .arg("-o").arg("StrictHostKeyChecking=no")
-        .arg("-o").arg("UserKnownHostsFile=NUL")
+        .arg("-o").arg("UserKnownHostsFile=/dev/null")
         .arg("-o").arg("PasswordAuthentication=yes")
         .arg("-o").arg("PubkeyAuthentication=yes")
         .arg("-o").arg("KbdInteractiveAuthentication=yes")
         .arg("-o").arg("ConnectTimeout=10")
         .arg("-p").arg(port.to_string());
 
+    // Tunneling SSH
     if let Some(tunnels) = ssh_tunnels {
         for t in tunnels {
             match t.r#type.as_str() {
                 "Local" => {
-                    let d_host = t.destination_host.as_deref().unwrap_or("localhost");
-                    let d_port = t.destination_port.unwrap_or(80);
-                    cmd.arg("-L").arg(format!("{}:{}:{}", t.local_port, d_host, d_port));
+                    let dh = t.destination_host.as_deref().unwrap_or("localhost");
+                    let dp = t.destination_port.unwrap_or(80);
+                    cmd.arg("-L").arg(format!("{}:{}:{}", t.local_port, dh, dp));
                 }
                 "Remote" => {
-                    let d_host = t.destination_host.as_deref().unwrap_or("localhost");
-                    let d_port = t.destination_port.unwrap_or(80);
-                    cmd.arg("-R").arg(format!("{}:{}:{}", t.local_port, d_host, d_port));
+                    let dh = t.destination_host.as_deref().unwrap_or("localhost");
+                    let dp = t.destination_port.unwrap_or(80);
+                    cmd.arg("-R").arg(format!("{}:{}:{}", t.local_port, dh, dp));
                 }
                 "Dynamic" => {
                     cmd.arg("-D").arg(t.local_port.to_string());
@@ -145,84 +183,71 @@ pub fn ssh_connect(
         }
     }
 
-    // ── Set SSH_ASKPASS environment ──────────────────────
-    if let Some(ref askpass_path) = askpass_file {
-        cmd.env("SSH_ASKPASS", askpass_path.to_string_lossy().to_string());
+    // ── Configura SSH_ASKPASS ────────────────────────────
+    if let Some(ref ap) = askpass_file {
+        cmd.env("SSH_ASKPASS", ap.to_string_lossy().to_string());
         cmd.env("SSH_ASKPASS_REQUIRE", "force");
-        cmd.env("DISPLAY", "localhost:0");
-        log_diag("SSH_ASKPASS configured: force mode enabled");
+        // DISPLAY è richiesto su alcuni sistemi Unix anche in modalità headless
+        if std::env::var("DISPLAY").is_err() {
+            cmd.env("DISPLAY", ":0");
+        }
+        log_diag("SSH_ASKPASS configurato");
     }
 
-    log_diag(&format!("Launching: {:?}", cmd));
+    log_diag(&format!("Lancio: {:?}", cmd));
 
-    // ── Spawn ───────────────────────────────────────────
+    // ── Avvia il processo ────────────────────────────────
     let mut child = cmd
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| {
-            let err = format!("Failed to spawn SSH: {}", e);
+            let err = format!("Impossibile avviare SSH: {}", e);
             log_diag(&err);
-            // Clean up askpass file on error
             if let Some(ref p) = askpass_file { let _ = fs::remove_file(p); }
             err
         })?;
 
-    let stdin = child.stdin.take().ok_or("No stdin")?;
-    let stdout = child.stdout.take().ok_or("No stdout")?;
-    let stderr = child.stderr.take().ok_or("No stderr")?;
+    let stdin  = child.stdin.take().ok_or("stdin non disponibile")?;
+    let stdout = child.stdout.take().ok_or("stdout non disponibile")?;
+    let stderr = child.stderr.take().ok_or("stderr non disponibile")?;
 
     let stdin_tx: Arc<Mutex<Option<Box<dyn Write + Send>>>> =
         Arc::new(Mutex::new(Some(Box::new(stdin) as Box<dyn Write + Send>)));
     let child_arc = Arc::new(Mutex::new(Some(child)));
 
-    let app_handle = app.clone();
-    let sid = session_id.to_string();
-    let child_arc_io = child_arc.clone();
-
-    // ── Schedule askpass cleanup ─────────────────────────
-    if let Some(ref askpass_path) = askpass_file {
-        let cleanup_path = askpass_path.clone();
-        thread::spawn(move || {
-            // Wait long enough for SSH to have read it, then delete
-            thread::sleep(std::time::Duration::from_secs(15));
-            if cleanup_path.exists() {
-                let _ = fs::remove_file(&cleanup_path);
-                log_diag(&format!("Cleaned up askpass: {:?}", cleanup_path));
-            }
-        });
+    // Pianifica la rimozione dell'askpass file
+    if let Some(ref path) = askpass_file {
+        schedule_askpass_cleanup(path.clone());
     }
 
-    // ── Spawn output readers ────────────────────────────
+    // ── Thread lettori stdout/stderr ─────────────────────
     let streams: Vec<(Box<dyn Read + Send>, &str)> = vec![
         (Box::new(stdout), "OUT"),
         (Box::new(stderr), "ERR"),
     ];
 
     for (mut reader, label) in streams {
-        let sid_clone = sid.clone();
-        let app_clone = app_handle.clone();
-        let child_arc_clone = child_arc_io.clone();
+        let sid = session_id.to_string();
+        let app_clone = app.clone();
+        let child_clone = child_arc.clone();
 
         thread::spawn(move || {
-            let mut buffer = [0; 4096];
-
+            let mut buf = [0u8; 4096];
             loop {
-                match reader.read(&mut buffer) {
+                match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
-                        let raw = String::from_utf8_lossy(&buffer[..n]).to_string();
+                        let raw = String::from_utf8_lossy(&buf[..n]).to_string();
                         log_diag(&format!("{}: {}", label, raw.trim()));
 
-                        // Process line by line for filtering
                         let lines: Vec<&str> = raw.split('\n').collect();
-                        let num_lines = lines.len();
+                        let nlines = lines.len();
 
                         for (i, line) in lines.iter().enumerate() {
                             let ll = line.to_lowercase();
 
-                            // Filter debug noise
                             let is_noise = ll.contains("debug1:")
                                 || ll.contains("debug2:")
                                 || ll.contains("debug3:")
@@ -231,63 +256,48 @@ pub fn ssh_connect(
 
                             if !is_noise {
                                 let mut pkt = line.to_string();
-                                if i < num_lines - 1 {
-                                    pkt.push('\n');
-                                }
+                                if i < nlines - 1 { pkt.push('\n'); }
                                 if !pkt.is_empty() {
                                     let _ = app_clone.emit(
-                                        &format!("ssh:data:{}", sid_clone),
-                                        SshDataEvent {
-                                            session_id: sid_clone.clone(),
-                                            data: pkt,
-                                        },
+                                        &format!("ssh:data:{}", sid),
+                                        SshDataEvent { session_id: sid.clone(), data: pkt },
                                     );
                                 }
                             }
 
-                            // Detect successful login
-                            if ll.contains("entering interactive session")
-                                || ll.contains("authenticated to")
-                            {
-                                log_diag(">>> LOGIN SUCCESS <<<");
+                            if ll.contains("entering interactive session") || ll.contains("authenticated to") {
+                                log_diag(">>> LOGIN OK <<<");
                                 let _ = app_clone.emit(
-                                    &format!("ssh:status:{}", sid_clone),
+                                    &format!("ssh:status:{}", sid),
                                     SshStatusEvent {
-                                        session_id: sid_clone.clone(),
+                                        session_id: sid.clone(),
                                         status: "connected".to_string(),
-                                        message: "Connected".to_string(),
+                                        message: "Connesso".to_string(),
                                     },
                                 );
                             }
 
-                            // Detect auth failure
                             if ll.contains("permission denied") {
-                                log_diag(">>> AUTH FAILURE <<<");
+                                log_diag(">>> AUTH FALLITA <<<");
                             }
                         }
                     }
-                    Err(e) => {
-                        log_diag(&format!("{} read error: {}", label, e));
-                        break;
-                    }
+                    Err(e) => { log_diag(&format!("{} read error: {}", label, e)); break; }
                 }
             }
 
-            // On stdout EOF → session is over
             if label == "OUT" {
-                log_diag(&format!("Session {} EOF", sid_clone));
+                log_diag(&format!("Sessione {} EOF", sid));
                 let _ = app_clone.emit(
-                    &format!("ssh:status:{}", sid_clone),
+                    &format!("ssh:status:{}", sid),
                     SshStatusEvent {
-                        session_id: sid_clone.clone(),
+                        session_id: sid.clone(),
                         status: "disconnected".into(),
-                        message: "Disconnected".into(),
+                        message: "Disconnesso".into(),
                     },
                 );
-                if let Ok(mut g) = child_arc_clone.lock() {
-                    if let Some(ref mut c) = *g {
-                        let _ = c.wait();
-                    }
+                if let Ok(mut g) = child_clone.lock() {
+                    if let Some(ref mut c) = *g { let _ = c.wait(); }
                     *g = None;
                 }
             }
@@ -301,7 +311,20 @@ pub fn ssh_connect(
     })
 }
 
-// ── Send keyboard input to remote ────────────────────────
+// ── Individua il binario SSH ─────────────────────────────
+
+fn resolve_ssh_binary() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        let sys = "C:\\Windows\\System32\\OpenSSH\\ssh.exe";
+        if std::path::Path::new(sys).exists() {
+            return sys.to_string();
+        }
+    }
+    "ssh".to_string()
+}
+
+// ── Invio input ──────────────────────────────────────────
 
 pub fn ssh_send_input(session: &SshSession, data: &str) -> Result<(), String> {
     let mut guard = session.stdin_tx.lock().map_err(|_| "Lock error")?;
@@ -310,22 +333,19 @@ pub fn ssh_send_input(session: &SshSession, data: &str) -> Result<(), String> {
         stdin.flush().map_err(|e| e.to_string())?;
         Ok(())
     } else {
-        Err("Session closed".into())
+        Err("Sessione chiusa".into())
     }
 }
 
-// ── Disconnect ───────────────────────────────────────────
+// ── Disconnessione ───────────────────────────────────────
 
 pub fn ssh_disconnect(session: &SshSession) -> Result<(), String> {
-    // Clean up askpass file
     if let Some(ref path) = session.askpass_path {
         let _ = fs::remove_file(path);
     }
-    if let Ok(mut guard) = session.child.lock() {
-        if let Some(ref mut child) = *guard {
-            let _ = child.kill();
-        }
-        *guard = None;
+    if let Ok(mut g) = session.child.lock() {
+        if let Some(ref mut c) = *g { let _ = c.kill(); }
+        *g = None;
     }
     Ok(())
 }

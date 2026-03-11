@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[allow(non_snake_case)]
 pub struct ProxmoxAuthResponse {
     pub CSRFPreventionToken: String,
     pub ticket: String,
@@ -12,7 +13,7 @@ pub struct ProxmoxAuthResponse {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProxmoxResource {
     pub id: String,
-    pub r#type: String, // "qemu" or "lxc"
+    pub r#type: String,
     pub node: String,
     pub status: String,
     pub name: String,
@@ -35,45 +36,51 @@ struct ProxmoxResourceData {
 
 lazy_static::lazy_static! {
     static ref HTTP_CLIENT: Client = Client::builder()
-        .danger_accept_invalid_certs(true) // Proxmox often uses self-signed certs
+        .danger_accept_invalid_certs(true) // Proxmox usa spesso certificati self-signed
         .timeout(Duration::from_secs(15))
         .build()
-        .expect("Failed to build HTTP Client");
+        .expect("Impossibile costruire HTTP Client");
 }
 
+/// FIX: la password arriva cifrata dal frontend e viene decifrata
+/// qui in Rust prima di usarla, esattamente come avviene per SSH.
+/// Il frontend deve passare `password_encrypted` (il valore cifrato
+/// salvato nel DB) invece della password in chiaro.
 #[tauri::command]
 pub async fn proxmox_auth(
+    state: tauri::State<'_, crate::state::AppState>,
     host: String,
     port: u16,
     username: String,
-    _password_encrypted: String, 
-    // Usually we would decrypt it here properly, but for simplicity assuming cleartext or unencrypted passage for now 
-    // according to how the frontend is handling the standard password flow 
-    // Wait, the user plan specifies username/password. I will assume it's passed unencrypted to the tauri API from the frontend.
-    password: Option<String>
+    password_encrypted: String,
 ) -> Result<ProxmoxAuthResponse, String> {
-    let pw: String = password.unwrap_or_default();
-    
+    // Decifra la password usando la chiave del vault
+    let password = {
+        let key_guard = state.encryption_key.read().map_err(|_| "Lock error")?;
+        let key = key_guard.as_ref().ok_or("Vault bloccato — sblocca prima di connetterti")?;
+        crate::encryption::decrypt(&password_encrypted, key)?
+    };
+
     let url = format!("https://{}:{}/api2/json/access/ticket", host, port);
-    
+
     let res: Response = HTTP_CLIENT
         .post(&url)
         .form(&[
             ("username", username.as_str()),
-            ("password", pw.as_str())
+            ("password", password.as_str()),
         ])
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Richiesta fallita: {}", e))?;
 
     if !res.status().is_success() {
-        return Err(format!("Authentication failed. Status code: {}", res.status()));
+        return Err(format!("Autenticazione fallita. Status: {}", res.status()));
     }
 
     let auth_data: ProxmoxAuthData = res
         .json()
         .await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
+        .map_err(|e| format!("Errore parsing risposta: {}", e))?;
 
     Ok(auth_data.data)
 }
@@ -85,22 +92,22 @@ pub async fn proxmox_get_resources(
     ticket: String,
 ) -> Result<Vec<ProxmoxResource>, String> {
     let url = format!("https://{}:{}/api2/json/cluster/resources?type=vm", host, port);
-    
+
     let res: Response = HTTP_CLIENT
         .get(&url)
         .header("Cookie", format!("PVEAuthCookie={}", ticket))
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Richiesta fallita: {}", e))?;
 
     if !res.status().is_success() {
-        return Err(format!("Failed to fetch resources. Status: {}", res.status()));
+        return Err(format!("Impossibile ottenere risorse. Status: {}", res.status()));
     }
 
     let res_data: ProxmoxResourceData = res
         .json()
         .await
-        .map_err(|e| format!("Parse error: {}", e))?;
+        .map_err(|e| format!("Errore parsing: {}", e))?;
 
     Ok(res_data.data)
 }
@@ -113,24 +120,33 @@ pub async fn proxmox_vm_action(
     csrf: String,
     node: String,
     vmid: String,
-    vm_type: String, // qemu or lxc
-    action: String,  // start, stop, shutdown, reboot
+    vm_type: String,
+    action: String,
 ) -> Result<String, String> {
-    let url = format!("https://{}:{}/api2/json/nodes/{}/{}/{}/status/{}", host, port, node, vm_type, vmid, action);
-    
+    // Valida l'azione per prevenire injection nell'URL
+    let allowed = ["start", "stop", "shutdown", "reboot", "suspend", "resume"];
+    if !allowed.contains(&action.as_str()) {
+        return Err(format!("Azione non consentita: '{}'", action));
+    }
+
+    let url = format!(
+        "https://{}:{}/api2/json/nodes/{}/{}/{}/status/{}",
+        host, port, node, vm_type, vmid, action
+    );
+
     let res: Response = HTTP_CLIENT
         .post(&url)
         .header("Cookie", format!("PVEAuthCookie={}", ticket))
         .header("CSRFPreventionToken", csrf)
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Richiesta fallita: {}", e))?;
 
     let status = res.status();
     if !status.is_success() {
-        let err_text = res.text().await.unwrap_or_else(|_| String::new());
-        return Err(format!("Action failed. Status: {} - {}", status, err_text));
+        let err_text = res.text().await.unwrap_or_default();
+        return Err(format!("Azione fallita. Status: {} — {}", status, err_text));
     }
 
-    Ok("Action initiated successfully".to_string())
+    Ok("Azione avviata correttamente".to_string())
 }
