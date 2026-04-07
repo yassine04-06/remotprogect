@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Settings, Shield, Globe, Terminal } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import * as api from './services/api';
@@ -11,18 +11,33 @@ import { TerminalView } from './components/TerminalView';
 import { RdpView } from './components/RdpView';
 import { VncView } from './components/VncView';
 import { LocalTerminalView } from './components/LocalTerminalView';
-import { FileManagerView } from './components/FileManagerView';
 import { SettingsModal } from './components/SettingsModal';
 import { QuickConnectBar } from './components/QuickConnectBar';
-import { PortScannerModal } from './components/PortScannerModal';
 import { GroupDialog } from './components/GroupDialog';
-import { CommandPalette } from './components/CommandPalette';
-import { CommandLibraryModal } from './components/CommandLibraryModal';
 import { BroadcastBar } from './components/BroadcastBar';
-import { HealthDashboard } from './components/HealthDashboard';
-import { ProxmoxView } from './components/ProxmoxView';
-import { DockerView } from './components/DockerView';
 import { motion, AnimatePresence } from 'framer-motion';
+
+const PortScannerModal = lazy(() =>
+  import('./components/PortScannerModal').then(module => ({ default: module.PortScannerModal }))
+);
+const CommandPalette = lazy(() =>
+  import('./components/CommandPalette').then(module => ({ default: module.CommandPalette }))
+);
+const CommandLibraryModal = lazy(() =>
+  import('./components/CommandLibraryModal').then(module => ({ default: module.CommandLibraryModal }))
+);
+const HealthDashboard = lazy(() =>
+  import('./components/HealthDashboard').then(module => ({ default: module.HealthDashboard }))
+);
+const ProxmoxView = lazy(() =>
+  import('./components/ProxmoxView').then(module => ({ default: module.ProxmoxView }))
+);
+const DockerView = lazy(() =>
+  import('./components/DockerView').then(module => ({ default: module.DockerView }))
+);
+const FileManagerView = lazy(() =>
+  import('./components/FileManagerView').then(module => ({ default: module.FileManagerView }))
+);
 
 function Toaster() {
   const toasts = useAppStore(state => state.toasts);
@@ -169,7 +184,9 @@ function MainLayout() {
                 exit={{ opacity: 0 }}
                 className="w-full h-full relative"
               >
-                <HealthDashboard />
+                <Suspense fallback={<div className="w-full h-full bg-base" />}>
+                  <HealthDashboard />
+                </Suspense>
               </motion.div>
             ) : (
               <div className="w-full h-full">
@@ -182,11 +199,17 @@ function MainLayout() {
                     ) : tab.protocol === 'LOCAL' ? (
                       <LocalTerminalView tab={tab} isActive={activeTabId === tab.id} />
                     ) : tab.protocol === 'SFTP' || tab.protocol === 'FTP' ? (
-                      <FileManagerView tab={tab} isActive={activeTabId === tab.id} />
+                      <Suspense fallback={<div className="w-full h-full bg-base" />}>
+                        <FileManagerView tab={tab} isActive={activeTabId === tab.id} />
+                      </Suspense>
                     ) : tab.protocol === 'PROXMOX' ? (
-                      <ProxmoxView connection={tab.connection!} />
+                      <Suspense fallback={<div className="w-full h-full bg-base" />}>
+                        <ProxmoxView connection={tab.connection!} />
+                      </Suspense>
                     ) : tab.protocol === 'DOCKER' ? (
-                      <DockerView connection={tab.connection!} />
+                      <Suspense fallback={<div className="w-full h-full bg-base" />}>
+                        <DockerView connection={tab.connection!} />
+                      </Suspense>
                     ) : (
                       <VncView tab={tab} isActive={activeTabId === tab.id} />
                     )}
@@ -211,7 +234,9 @@ function MainLayout() {
 
       <AnimatePresence>
         {showPortScanner && (
-          <PortScannerModal onClose={() => setShowPortScanner(false)} />
+          <Suspense fallback={null}>
+            <PortScannerModal onClose={() => setShowPortScanner(false)} />
+          </Suspense>
         )}
       </AnimatePresence>
 
@@ -226,8 +251,12 @@ function MainLayout() {
         )}
       </AnimatePresence>
 
-      <CommandPalette />
-      <CommandLibraryModal />
+      <Suspense fallback={null}>
+        <CommandPalette />
+      </Suspense>
+      <Suspense fallback={null}>
+        <CommandLibraryModal />
+      </Suspense>
 
       <Toaster />
     </div >
