@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, TerminalSquare, Command, Hash } from 'lucide-react';
-import { useAppStore } from '../store/useAppStore';
+import { useUIStore, useCredentialStore } from '../store';
 
 export const CommandPalette: React.FC = () => {
-    const { showCommandPalette, setShowCommandPalette, savedCommands } = useAppStore();
+    const showCommandPalette = useUIStore(s => s.showCommandPalette);
+    const setShowCommandPalette = useUIStore(s => s.setShowCommandPalette);
+    const savedCommands = useCredentialStore(s => s.savedCommands);
     const [query, setQuery] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);

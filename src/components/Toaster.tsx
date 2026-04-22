@@ -1,8 +1,9 @@
 import React from 'react';
-import { useAppStore } from '../store/useAppStore';
+import { useUIStore } from '../store';
 
 export const Toaster: React.FC = () => {
-    const { toasts, removeToast } = useAppStore();
+    const toasts = useUIStore(s => s.toasts);
+    const removeToast = useUIStore(s => s.removeToast);
 
     return (
         <div className="toast-container">

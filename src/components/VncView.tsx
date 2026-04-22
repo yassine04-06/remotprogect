@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useAppStore } from '../store/useAppStore';
+import { useConnectionStore, useTabStore, useUIStore } from '../store';
 import * as api from '../services/api';
 import type { Tab } from '../types';
 import { Monitor, RefreshCw } from 'lucide-react';
@@ -10,7 +10,10 @@ interface VncViewProps {
 }
 
 export function VncView({ tab, isActive }: VncViewProps) {
-    const { connections, closeTab, updateTabStatus, addToast } = useAppStore();
+    const connections = useConnectionStore(s => s.connections);
+    const closeTab = useTabStore(s => s.closeTab);
+    const updateTabStatus = useTabStore(s => s.updateTabStatus);
+    const addToast = useUIStore(s => s.addToast);
     const [status, setStatus] = useState(tab.status);
     const [availability, setAvailability] = useState<{ available: boolean; message: string } | null>(null);
 
@@ -29,15 +32,12 @@ export function VncView({ tab, isActive }: VncViewProps) {
 
                         const conn = tab.connection || connections.find(c => c.id === tab.connectionId);
                         if (conn) {
-                            let pwd = undefined;
-                            if (conn.password_encrypted) {
-                                pwd = await api.decryptValue(conn.password_encrypted);
-                            }
+                            const creds = await api.resolveCredentials(conn.id);
                             await api.vncConnect(
                                 tab.id,
                                 conn.host,
                                 conn.port,
-                                pwd
+                                creds.password_decrypted || undefined
                             );
                             if (isMounted) {
                                 setStatus('connected');
@@ -75,15 +75,12 @@ export function VncView({ tab, isActive }: VncViewProps) {
         const conn = tab.connection || connections.find(c => c.id === tab.connectionId);
         if (conn) {
             try {
-                let pwd = undefined;
-                if (conn.password_encrypted) {
-                    pwd = await api.decryptValue(conn.password_encrypted);
-                }
+                const creds = await api.resolveCredentials(conn.id);
                 await api.vncConnect(
                     tab.id,
                     conn.host,
                     conn.port,
-                    pwd
+                    creds.password_decrypted || undefined
                 );
                 setStatus('connected');
                 updateTabStatus(tab.id, 'connected');

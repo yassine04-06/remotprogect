@@ -6,6 +6,42 @@ export interface SshTunnel {
     destinationPort?: number;
 }
 
+export type CredentialType = 'ssh' | 'rdp' | 'ftp' | 'generic';
+
+export interface CredentialProfile {
+    id: string;
+    name: string;
+    type: CredentialType;
+    description: string | null;
+    username: string | null;
+    password_encrypted?: string | null;
+    private_key_encrypted?: string | null;
+    domain: string | null;
+    created_at: number;
+    updated_at: number;
+}
+
+export interface CreateCredentialProfileRequest {
+    name: string;
+    type: CredentialType;
+    description: string | null;
+    username: string | null;
+    password_encrypted?: string | null;
+    private_key_encrypted?: string | null;
+    domain: string | null;
+}
+
+export interface UpdateCredentialProfileRequest extends CreateCredentialProfileRequest {
+    id: string;
+}
+
+export interface ResolvedCredentials {
+    username: string | null;
+    password_decrypted: string | null;
+    private_key_decrypted: string | null;
+    domain: string | null;
+}
+
 export interface ServerConnection {
     id: string;
     name: string;
@@ -26,6 +62,8 @@ export interface ServerConnection {
     rdp_redirect_printers: boolean;
     rdp_redirect_drives: boolean;
     ssh_tunnels?: SshTunnel[];
+    credential_profile_id?: string | null;
+    override_credentials: boolean;
     created_at: string;
     updated_at: string;
 }
@@ -56,6 +94,8 @@ export interface CreateConnectionRequest {
     rdp_redirect_printers?: boolean | null;
     rdp_redirect_drives?: boolean | null;
     ssh_tunnels?: SshTunnel[] | null;
+    credential_profile_id?: string | null;
+    override_credentials?: boolean | null;
 }
 
 export interface UpdateConnectionRequest extends CreateConnectionRequest {
@@ -66,6 +106,7 @@ export interface ExportData {
     version: number;
     connections: ServerConnection[];
     groups: Group[];
+    credential_profiles: CredentialProfile[];
 }
 
 export interface SavedCommand {

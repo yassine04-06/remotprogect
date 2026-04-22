@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TerminalSquare, SendHorizonal, X } from 'lucide-react';
-import { useAppStore } from '../store/useAppStore';
+import { useTabStore } from '../store';
 import * as api from '../services/api';
 
 export const BroadcastBar: React.FC = () => {
-    const { isBroadcastMode, setBroadcastMode, tabs } = useAppStore();
+    const isBroadcastMode = useTabStore(s => s.isBroadcastMode);
+    const setBroadcastMode = useTabStore(s => s.setBroadcastMode);
+    const tabs = useTabStore(s => s.tabs);
     const [command, setCommand] = useState('');
 
     const targetTabs = tabs.filter(t => t.protocol === 'SSH' || t.protocol === 'LOCAL');

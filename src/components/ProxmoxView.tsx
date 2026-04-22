@@ -1,16 +1,16 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Square, RefreshCw, PowerOff, Loader2, RotateCcw, Server, Box, AlertCircle, Monitor } from 'lucide-react';
+import { Play, Square, RefreshCw, PowerOff, Loader2, RotateCcw, Server, Box, AlertCircle, Monitor, Terminal } from 'lucide-react';
 import * as api from '../services/api';
 import type { ProxmoxResource, ProxmoxAuthResponse, ServerConnection } from '../types';
-import { useAppStore } from '../store/useAppStore';
+import { useUIStore } from '../store';
 
 interface Props {
     connection: ServerConnection;
 }
 
 export const ProxmoxView: React.FC<Props> = ({ connection }) => {
-    const { addToast } = useAppStore();
+    const addToast = useUIStore(s => s.addToast);
     const [authData, setAuthData] = useState<ProxmoxAuthResponse | null>(null);
     const [resources, setResources] = useState<ProxmoxResource[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -22,14 +22,13 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
         setIsLoading(true);
         setError(null);
         try {
+            const creds = await api.resolveCredentials(connection.id);
             const auth = await api.proxmoxAuth(
                 connection.host,
                 connection.port,
-                connection.username,
+                creds.username || connection.username,
                 connection.password_encrypted ?? '',
-                null // Cleartext password handling relies on standard vault decryption flow outside this scope
-                // Actually, the vault decrypts it in rust, but proxmox_auth currently takes raw password.
-                // For MVP, assuming the user inputs it without vault or we will amend API to decrypt.
+                creds.password_decrypted
             );
             setAuthData(auth);
 
@@ -65,6 +64,25 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
             clearInterval(interval);
         };
     }, [authData, connection.host, connection.port]);
+
+    const handleOpenConsole = async (res: ProxmoxResource) => {
+        if (!authData) return;
+        const vmid = res.id.split('/')[2]; // e.g. qemu/100 -> 100
+        const consoleType = res.type === 'qemu' ? 'kvm' : 'lxc';
+        const url = `https://${connection.host}:${connection.port}/?console=${consoleType}&vmid=${vmid}&node=${res.node}&novnc=1`;
+
+        try {
+            const label = `console_${res.node}_${vmid}_${Date.now()}`;
+            const title = `Console — ${res.name} (${res.id})`;
+            
+            await api.proxmoxOpenConsole(url, label, title, authData.ticket);
+            addToast({ type: 'success', title: 'Console Opened', description: `Connected to ${res.name}` });
+            
+        } catch (err: any) {
+            console.error('Proxmox Console Error:', err);
+            addToast({ type: 'error', title: 'Failed to open console', description: err.message || String(err) });
+        }
+    };
 
     const handleAction = async (vmid: string, node: string, type: string, action: string) => {
         if (!authData) return;
@@ -227,6 +245,11 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
                                                 <div className="flex items-center justify-end gap-1">
                                                     {isRunning ? (
                                                         <>
+                                                            <button
+                                                                onClick={() => handleOpenConsole(res)}
+                                                                className="p-1.5 rounded-lg text-text-muted hover:text-pink-400 hover:bg-pink-400/10 transition-colors" title="Open Console">
+                                                                <Terminal className="w-4 h-4" />
+                                                            </button>
                                                             <button
                                                                 onClick={() => handleAction(res.id.split('/')[1], res.node, res.type, 'stop')}
                                                                 disabled={actionLoading === res.id.split('/')[1]}

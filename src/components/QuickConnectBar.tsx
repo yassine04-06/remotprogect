@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { useAppStore } from '../store/useAppStore';
+import { useTabStore } from '../store';
 import { Zap, ChevronRight } from 'lucide-react';
 
 export function QuickConnectBar() {
     const [input, setInput] = useState('');
-    const { openTab } = useAppStore();
+    const openTab = useTabStore(s => s.openTab);
 
     const handleConnect = () => {
         if (!input) return;

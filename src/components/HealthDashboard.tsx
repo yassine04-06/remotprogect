@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { useAppStore } from '../store/useAppStore';
+import { useConnectionStore, useTabStore } from '../store';
 import * as api from '../services/api';
 import { Monitor, Server, Terminal, Lock, HardDrive, MonitorStop, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
 import type { ServerConnection } from '../types';
@@ -14,7 +14,9 @@ interface PingHistory {
 }
 
 export const HealthDashboard: React.FC = () => {
-    const { connections, addTab, setActiveTabId } = useAppStore();
+    const connections = useConnectionStore(s => s.connections);
+    const addTab = useTabStore(s => s.addTab);
+    const setActiveTabId = useTabStore(s => s.setActiveTabId);
     const [healthData, setHealthData] = useState<PingHistory>({});
     const [isPinging, setIsPinging] = useState(false);
 

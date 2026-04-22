@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { X, Save, Download, Upload, ShieldCheck, Lock, Database, Palette, Check } from 'lucide-react';
-import { useAppStore } from '../store/useAppStore';
+import { useUIStore, useConnectionStore } from '../store';
 import * as api from '../services/api';
+import { parseBackendError, getUserFriendlyErrorMessage } from '../utils/errorMapper';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface SettingsModalProps {
@@ -10,7 +11,10 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-    const { fetchData, addToast, theme, setTheme } = useAppStore();
+    const fetchData = useConnectionStore(s => s.fetchConnections);
+    const addToast = useUIStore(s => s.addToast);
+    const theme = useUIStore(s => s.theme);
+    const setTheme = useUIStore(s => s.setTheme);
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [activeSection, setActiveSection] = useState<'security' | 'data' | 'appearance'>('security');
@@ -28,8 +32,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             a.click();
             URL.revokeObjectURL(url);
             addToast({ type: 'success', title: 'Vault exported', description: 'Your backup is ready.' });
-        } catch (err: any) {
-            addToast({ type: 'error', title: 'Export failed', description: String(err) });
+        } catch (err: unknown) {
+            const appError = parseBackendError(err);
+            addToast({ type: 'error', title: 'Export failed', description: getUserFriendlyErrorMessage(appError) });
         }
     };
 
@@ -48,8 +53,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             await api.importConnections(data);
             await fetchData();
             addToast({ type: 'success', title: 'Vault restored', description: 'Data synchronization complete.' });
-        } catch (err: any) {
-            addToast({ type: 'error', title: 'Import failed', description: String(err) });
+        } catch (err: unknown) {
+            const appError = parseBackendError(err);
+            addToast({ type: 'error', title: 'Import failed', description: getUserFriendlyErrorMessage(appError) });
         } finally {
             e.target.value = '';
         }
@@ -68,8 +74,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             addToast({ type: 'success', title: 'Security updated', description: 'Master password changed successfully.' });
             setPassword('');
             onClose();
-        } catch (err: any) {
-            addToast({ type: 'error', title: 'Critical failure', description: String(err) });
+        } catch (err: unknown) {
+            const appError = parseBackendError(err);
+            addToast({ type: 'error', title: 'Critical failure', description: getUserFriendlyErrorMessage(appError) });
         } finally {
             setLoading(false);
         }

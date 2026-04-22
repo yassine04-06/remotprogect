@@ -7,7 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 import { listen } from '@tauri-apps/api/event';
 import * as api from '../services/api';
 import type { Tab } from '../types';
-import { useAppStore } from '../store/useAppStore';
+import { useUIStore } from '../store';
 import { TerminalSquare } from 'lucide-react';
 
 interface ShellDataEvent {
@@ -27,7 +27,7 @@ interface Props {
 }
 
 export function LocalTerminalView({ tab, isActive }: Props) {
-    const { setShowCommandPalette } = useAppStore();
+    const setShowCommandPalette = useUIStore(s => s.setShowCommandPalette);
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);

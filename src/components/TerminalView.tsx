@@ -6,7 +6,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import { listen } from '@tauri-apps/api/event';
-import { useAppStore } from '../store/useAppStore';
+import { useConnectionStore, useTabStore, useUIStore } from '../store';
 import * as api from '../services/api';
 import type { Tab, SshStatusEvent, SshDataEvent } from '../types';
 import { RefreshCw, TerminalSquare } from 'lucide-react';
@@ -22,7 +22,10 @@ export function TerminalView({ tab, isActive }: TerminalViewProps) {
     const termRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
 
-    const { connections, updateTabStatus, setShowCommandPalette, theme: appTheme } = useAppStore();
+    const connections = useConnectionStore(s => s.connections);
+    const updateTabStatus = useTabStore(s => s.updateTabStatus);
+    const setShowCommandPalette = useUIStore(s => s.setShowCommandPalette);
+    const appTheme = useUIStore(s => s.theme);
     const [sessionState, setSessionState] = useState(tab.status);
 
     const [menuPosition, setMenuPosition] = useState<{ x: number, y: number } | null>(null);
@@ -167,12 +170,15 @@ export function TerminalView({ tab, isActive }: TerminalViewProps) {
             const conn = connections.find(c => c.id === tab.connectionId) || tab.connection;
             if (conn) {
                 try {
-                    let password = null;
-                    let privateKeyPath = null;
-                    if (!conn.use_private_key && conn.password_encrypted) password = await api.decryptValue(conn.password_encrypted);
-                    else if (conn.use_private_key && conn.private_key_encrypted) privateKeyPath = await api.decryptValue(conn.private_key_encrypted);
-
-                    await api.sshConnect(tab.id, conn.host, conn.port, conn.username, password, privateKeyPath);
+                    const creds = await api.resolveCredentials(conn.id);
+                    await api.sshConnect(
+                        tab.id, 
+                        conn.host, 
+                        conn.port, 
+                        creds.username || conn.username, 
+                        creds.password_decrypted, 
+                        creds.private_key_decrypted
+                    );
                 } catch (err) {
                     const errMsg = `[INTERNAL FAILURE] ${String(err)}`;
                     term.writeln(`\r\n${errMsg}`);
@@ -215,11 +221,15 @@ export function TerminalView({ tab, isActive }: TerminalViewProps) {
         const conn = connections.find(c => c.id === tab.connectionId);
         if (conn) {
             try {
-                let password = null;
-                let privateKeyPath = null;
-                if (!conn.use_private_key && conn.password_encrypted) password = await api.decryptValue(conn.password_encrypted);
-                else if (conn.use_private_key && conn.private_key_encrypted) privateKeyPath = await api.decryptValue(conn.private_key_encrypted);
-                await api.sshConnect(tab.id, conn.host, conn.port, conn.username, password, privateKeyPath);
+                const creds = await api.resolveCredentials(conn.id);
+                await api.sshConnect(
+                    tab.id, 
+                    conn.host, 
+                    conn.port, 
+                    creds.username || conn.username, 
+                    creds.password_decrypted, 
+                    creds.private_key_decrypted
+                );
             } catch (e) {
                 setSessionState('error');
                 updateTabStatus(tab.id, 'error');

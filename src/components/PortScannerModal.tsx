@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAppStore } from '../store/useAppStore';
+import { useUIStore, useConnectionStore } from '../store';
 import * as api from '../services/api';
 import { Search, Loader2, Server, Globe, CheckSquare, Square } from 'lucide-react';
 import type { NetworkScanResult } from '../types';
@@ -15,7 +15,9 @@ export function PortScannerModal({ onClose }: { onClose: () => void }) {
     const [selectedIps, setSelectedIps] = useState<Set<string>>(new Set());
     const [importProtocol, setImportProtocol] = useState<'SSH' | 'RDP' | 'VNC'>('SSH');
 
-    const { addToast, groups, refreshData } = useAppStore();
+    const addToast = useUIStore(s => s.addToast);
+    const groups = useConnectionStore(s => s.groups);
+    const refreshData = useConnectionStore(s => s.fetchConnections);
 
     const handleScan = async () => {
         setIsScanning(true);

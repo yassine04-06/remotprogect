@@ -1,6 +1,8 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { useAppStore } from '../store/useAppStore';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useConnectionStore, useTabStore, useUIStore, useCredentialStore } from '../store';
 import type { ServerConnection } from '../types';
+import { FixedSizeList as List } from 'react-window';
+import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ExternalToolsMenu } from './ExternalToolsMenu';
 import {
@@ -20,8 +22,10 @@ import {
     Globe,
     MoreVertical,
     FolderSync,
-    Library
+    Library,
+    KeyRound
 } from 'lucide-react';
+import type { CredentialProfile } from '../types';
 
 interface ContextMenuState {
     x: number;
@@ -29,24 +33,30 @@ interface ContextMenuState {
     connection: ServerConnection;
 }
 
+type FlatItem =
+    | { type: 'group'; id: string; group: any; connectionsCount: number; isExpanded: boolean }
+    | { type: 'server'; id: string; connection: ServerConnection };
+
 export const ServerSidebar: React.FC = () => {
-    const {
-        connections,
-        groups,
-        searchQuery,
-        setSearchQuery,
-        openTab,
-        tabs,
-        activeTabId,
-        setShowConnectionDialog,
-        setShowGroupDialog,
-        setEditingConnection,
-        setEditingGroup,
-        setShowPortScanner,
-        setShowCommandLibraryDialog,
-        deleteConnection,
-        deleteGroup
-    } = useAppStore();
+    const connections = useConnectionStore(s => s.connections);
+    const groups = useConnectionStore(s => s.groups);
+    const searchQuery = useConnectionStore(s => s.searchQuery);
+    const setSearchQuery = useConnectionStore(s => s.setSearchQuery);
+    const setEditingConnection = useConnectionStore(s => s.setEditingConnection);
+    const setEditingGroup = useConnectionStore(s => s.setEditingGroup);
+    const deleteConnection = useConnectionStore(s => s.deleteConnection);
+    const deleteGroup = useConnectionStore(s => s.deleteGroup);
+
+    const tabs = useTabStore(s => s.tabs);
+    const activeTabId = useTabStore(s => s.activeTabId);
+    const openTab = useTabStore(s => s.openTab);
+
+    const setShowConnectionDialog = useUIStore(s => s.setShowConnectionDialog);
+    const setShowGroupDialog = useUIStore(s => s.setShowGroupDialog);
+    const setShowPortScanner = useUIStore(s => s.setShowPortScanner);
+    const setShowCommandLibraryDialog = useUIStore(s => s.setShowCommandLibraryDialog);
+
+    const credentialProfiles = useCredentialStore(s => s.credentialProfiles);
 
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -64,14 +74,14 @@ export const ServerSidebar: React.FC = () => {
         return () => window.removeEventListener('click', handler);
     }, []);
 
-    const toggleGroup = (id: string, e: React.MouseEvent) => {
+    const toggleGroup = useCallback((id: string, e: React.MouseEvent) => {
         e.stopPropagation();
         setExpandedGroups((prev) => {
             const next = new Set(prev);
             next.has(id) ? next.delete(id) : next.add(id);
             return next;
         });
-    };
+    }, []);
 
     const handleContextMenu = (e: React.MouseEvent, connection: ServerConnection) => {
         e.preventDefault();
@@ -84,16 +94,16 @@ export const ServerSidebar: React.FC = () => {
         setGroupContextMenu({ x: e.clientX, y: e.clientY, group });
     };
 
-    const handleDelete = async (connection: ServerConnection) => {
+    const handleDelete = useCallback(async (connection: ServerConnection) => {
         setContextMenu(null);
         if (!confirm(`Are you sure you want to delete "${connection.name}"?`)) return;
         await deleteConnection(connection.id);
-    };
+    }, [deleteConnection]);
 
-    const getTabStatus = (connectionId: string) => {
+    const getTabStatus = useCallback((connectionId: string) => {
         const tab = tabs.find((t) => t.connectionId === connectionId);
         return tab?.status ?? 'idle';
-    };
+    }, [tabs]);
 
     const filteredConnections = useMemo(() =>
         connections.filter(
@@ -114,10 +124,109 @@ export const ServerSidebar: React.FC = () => {
         [groups, filteredConnections, searchQuery]
     );
 
+    const visibleNodes = useMemo(() => {
+        const nodes: FlatItem[] = [];
+
+        ungrouped.forEach(c => {
+            nodes.push({ type: 'server', id: c.id, connection: c });
+        });
+
+        grouped.forEach(({ group, connections: gConns }) => {
+            const isExpanded = expandedGroups.has(group.id);
+            nodes.push({ type: 'group', id: group.id, group, connectionsCount: gConns.length, isExpanded });
+            if (isExpanded) {
+                gConns.forEach(c => {
+                    nodes.push({ type: 'server', id: c.id, connection: c });
+                });
+            }
+        });
+
+        return nodes;
+    }, [ungrouped, grouped, expandedGroups]);
+
+    const Row = useCallback(({ index, style }: { index: number; style: React.CSSProperties }) => {
+        const item = visibleNodes[index];
+
+        if (item.type === 'group') {
+            const { group, isExpanded, connectionsCount } = item;
+            return (
+                <div style={style} className="pr-2">
+                    <div
+                        className="w-full flex items-center gap-2 px-3 h-full rounded-xl text-text-muted hover:bg-accent/5 transition-all group/header cursor-pointer select-none"
+                        onClick={(e) => toggleGroup(group.id, e)}
+                        onContextMenu={(e) => handleGroupContextMenu(e, group)}
+                    >
+                        {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                        <div className="flex-1 flex items-center justify-between min-w-0">
+                            <div className="flex items-center gap-2 min-w-0">
+                                {isExpanded ? <FolderOpen className="w-4 h-4 text-accent/70" /> : <Folder className="w-4 h-4 text-text-muted/50" />}
+                                <span className={`text-[11px] font-bold uppercase tracking-wider truncate ${isExpanded ? 'text-text-primary' : 'text-text-muted'}`}>
+                                    {group.name}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                                <span className="text-[10px] font-mono opacity-40 bg-accent/5 px-2 py-0.5 rounded-full">
+                                    {connectionsCount}
+                                </span>
+                                <div className="hidden group-hover/header:flex items-center gap-0.5 ml-1">
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditingGroup(group as any);
+                                            setShowGroupDialog(true);
+                                        }}
+                                        className="p-1 hover:bg-accent/10 rounded-md text-text-muted hover:text-text-primary transition-colors"
+                                        title="Rename Folder"
+                                    >
+                                        <Edit2 className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                        onClick={async (e) => {
+                                            e.stopPropagation();
+                                            if (!confirm(`Delete folder "${group.name}"? Connections inside will become ungrouped.`)) return;
+                                            await deleteGroup(group.id);
+                                        }}
+                                        className="p-1 hover:bg-red-500/10 rounded-md text-text-muted hover:text-red-400 transition-colors"
+                                        title="Delete Folder"
+                                    >
+                                        <Trash2 className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const conn = item.connection;
+        const isActive = activeTabId === conn.id || tabs.some(t => t.connectionId === conn.id && t.id === activeTabId);
+        const status = getTabStatus(conn.id);
+        const isChild = !!conn.group_id;
+
+        return (
+            <div style={style} className="pr-2">
+                <div className={isChild ? "ml-4 pl-2 border-l border-border/50 h-full flex items-center py-0.5" : "h-full flex items-center py-0.5"}>
+                    <ConnectionItem
+                        connection={conn}
+                        profile={credentialProfiles.find(p => p.id === conn.credential_profile_id)}
+                        status={status}
+                        isActive={isActive}
+                        onOpen={() => openTab(conn)}
+                        onEdit={() => {
+                            setEditingConnection(conn);
+                            setShowConnectionDialog(true);
+                        }}
+                        onContextMenu={(e) => handleContextMenu(e, conn)}
+                    />
+                </div>
+            </div>
+        );
+    }, [visibleNodes, toggleGroup, expandedGroups, activeTabId, tabs, getTabStatus, credentialProfiles, openTab, setEditingConnection, setShowConnectionDialog, setEditingGroup, setShowGroupDialog, deleteGroup]);
 
     return (
         <div className="w-64 flex flex-col h-full bg-surface border-r border-border select-none">
-            <div className="h-12 flex items-center justify-between px-4 border-b border-border">
+            <div className="h-12 flex items-center justify-between px-4 border-b border-border shrink-0">
                 <div className="flex items-center gap-2">
                     <div className="w-7 h-7 rounded-lg bg-accent/10 flex items-center justify-center">
                         <Layout className="w-4 h-4 text-accent" />
@@ -162,7 +271,7 @@ export const ServerSidebar: React.FC = () => {
                 </div>
             </div>
 
-            <div className="p-3">
+            <div className="p-3 shrink-0">
                 <div className="relative group">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted group-focus-within:text-accent transition-colors" />
                     <input
@@ -175,78 +284,21 @@ export const ServerSidebar: React.FC = () => {
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-2 pb-4 custom-scrollbar">
-                <AnimatePresence mode="popLayout">
-                    {ungrouped.map((c) => (
-                        <ConnectionItem
-                            key={c.id}
-                            connection={c}
-                            status={getTabStatus(c.id)}
-                            isActive={tabs.some((t) => t.connectionId === c.id && t.id === activeTabId)}
-                            onOpen={() => openTab(c)}
-                            onEdit={() => {
-                                setEditingConnection(c);
-                                setShowConnectionDialog(true);
-                            }}
-                            onContextMenu={(e) => handleContextMenu(e, c)}
-                        />
-                    ))}
-
-                    {grouped.map(({ group, connections: gConns }) => {
-                        const isExpanded = expandedGroups.has(group.id);
-                        return (
-                            <motion.div key={group.id} layout className="mb-0.5">
-                                <button
-                                    onClick={() => toggleGroup(group.id, {} as any)} // Cast to any to satisfy type, actual event not used in toggleGroup
-                                    onContextMenu={(e) => handleGroupContextMenu(e, group)}
-                                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-text-muted hover:bg-accent/5 transition-all group/header"
-                                >
-                                    {isExpanded ? <ChevronDown className="w-3.5 h-3.5 mt-0.5" /> : <ChevronRight className="w-3.5 h-3.5 mt-0.5" />}
-                                    <div className="flex-1 flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            {isExpanded ? <FolderOpen className="w-4 h-4 text-accent/70" /> : <Folder className="w-4 h-4 text-text-muted/50" />}
-                                            <span className={`text-[11px] font-black uppercase tracking-widest ${isExpanded ? 'text-text-primary' : 'text-text-muted'}`}>
-                                                {group.name}
-                                            </span>
-                                        </div>
-                                        <span className="text-[10px] font-mono opacity-40 bg-accent/5 px-2 py-0.5 rounded-full">
-                                            {gConns.length}
-                                        </span>
-                                    </div>
-                                </button>
-                                <AnimatePresence>
-                                    {isExpanded && (
-                                        <motion.div
-                                            initial={{ opacity: 0, height: 0 }}
-                                            animate={{ opacity: 1, height: 'auto' }}
-                                            exit={{ opacity: 0, height: 0 }}
-                                            className="ml-4 pl-2 border-l border-border/50 mt-0.5 overflow-hidden"
-                                        >
-                                            {gConns.map((conn) => {
-                                                const isActive = activeTabId === conn.id || tabs.some(t => t.connectionId === conn.id && t.id === activeTabId);
-                                                const status = getTabStatus(conn.id);
-                                                return (
-                                                    <ConnectionItem
-                                                        key={conn.id}
-                                                        connection={conn}
-                                                        status={status}
-                                                        isActive={isActive}
-                                                        onOpen={() => openTab(conn)}
-                                                        onEdit={() => {
-                                                            setEditingConnection(conn);
-                                                            setShowConnectionDialog(true);
-                                                        }}
-                                                        onContextMenu={(e) => handleContextMenu(e, conn)}
-                                                    />
-                                                );
-                                            })}
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </motion.div>
-                        );
-                    })}
-                </AnimatePresence>
+            <div className="flex-1 min-h-0 pl-2">
+                <AutoSizer>
+                    {({ height, width }) => (
+                        <List
+                            height={height}
+                            width={width}
+                            itemCount={visibleNodes.length}
+                            itemSize={36}
+                            itemKey={(index) => visibleNodes[index].id}
+                            className="custom-scrollbar"
+                        >
+                            {Row}
+                        </List>
+                    )}
+                </AutoSizer>
 
                 {filteredConnections.length === 0 && (
                     <div className="mt-12 px-6 flex flex-col items-center text-center gap-3">
@@ -350,6 +402,7 @@ export const ServerSidebar: React.FC = () => {
 
 interface ConnectionItemProps {
     connection: ServerConnection;
+    profile?: CredentialProfile;
     status: string;
     isActive: boolean;
     onOpen: () => void;
@@ -359,6 +412,7 @@ interface ConnectionItemProps {
 
 const ConnectionItem: React.FC<ConnectionItemProps> = React.memo(({
     connection,
+    profile,
     status,
     isActive,
     onOpen,
@@ -366,11 +420,8 @@ const ConnectionItem: React.FC<ConnectionItemProps> = React.memo(({
     onContextMenu
 }) => {
     return (
-        <motion.div
-            layout
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer group transition-colors select-none ${isActive ? 'bg-accent/20 text-accent font-bold' : 'hover:bg-accent/5 text-text-muted hover:text-text-primary'}`}
+        <div
+            className={`w-full h-full flex items-center gap-2 px-2 py-0 rounded-md cursor-pointer group transition-colors select-none ${isActive ? 'bg-accent/20 text-accent font-bold' : 'hover:bg-accent/5 text-text-muted hover:text-text-primary'}`}
             onDoubleClick={onOpen}
             onClick={onOpen}
             onContextMenu={onContextMenu}
@@ -388,9 +439,19 @@ const ConnectionItem: React.FC<ConnectionItemProps> = React.memo(({
                                 <Globe className="w-3.5 h-3.5" />}
             </div>
 
-            <div className="flex-1 min-w-0 flex items-baseline gap-1.5 truncate">
+            <div className="flex-1 min-w-0 flex items-center gap-1.5 truncate">
                 <span className="text-xs truncate">{connection.name}</span>
-                <span className="text-[9px] font-bold opacity-30 uppercase shrink-0">({connection.protocol})</span>
+                {connection.override_credentials ? (
+                    <span className="text-[9px] font-bold text-orange-400 bg-orange-400/10 px-1 py-0.5 rounded flex items-center gap-1 shrink-0 uppercase ml-auto">
+                        <Edit2 className="w-2.5 h-2.5" /> Custom
+                    </span>
+                ) : profile ? (
+                    <span className="text-[9px] font-bold text-accent bg-accent/10 px-1 py-0.5 rounded flex items-center gap-1 shrink-0 uppercase truncate max-w-[80px] ml-auto" title={profile.name}>
+                        <KeyRound className="w-2.5 h-2.5 shrink-0" /> {profile.name}
+                    </span>
+                ) : (
+                    <span className="text-[9px] font-bold opacity-30 uppercase shrink-0 ml-auto">({connection.protocol})</span>
+                )}
             </div>
 
             <div className="hidden group-hover:flex items-center gap-1">
@@ -413,6 +474,6 @@ const ConnectionItem: React.FC<ConnectionItemProps> = React.memo(({
                     <MoreVertical className="w-3 h-3" />
                 </button>
             </div>
-        </motion.div>
+        </div>
     );
 });

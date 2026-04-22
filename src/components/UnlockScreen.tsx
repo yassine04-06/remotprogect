@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { useAppStore } from '../store/useAppStore';
+import { useUIStore } from '../store';
 import * as api from '../services/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, ShieldCheck, ArrowRight, Loader2 } from 'lucide-react';
 
 export const UnlockScreen: React.FC = () => {
-    const { isFirstLaunch, setVaultUnlocked, setFirstLaunch, addToast } = useAppStore();
+    const isFirstLaunch = useUIStore(s => s.isFirstLaunch);
+    const setVaultUnlocked = useUIStore(s => s.setVaultUnlocked);
+    const setFirstLaunch = useUIStore(s => s.setFirstLaunch);
+    const addToast = useUIStore(s => s.addToast);
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);

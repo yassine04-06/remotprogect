@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAppStore } from '../store/useAppStore';
+import { useConnectionStore, useCredentialStore, useUIStore } from '../store';
 import * as api from '../services/api';
 
 import type { ServerConnection, CreateConnectionRequest } from '../types';
@@ -12,7 +12,11 @@ interface Props {
 }
 
 export const ConnectionForm: React.FC<Props> = ({ editConnection, onClose }) => {
-    const { groups, addToast, createConnection, updateConnection } = useAppStore();
+    const groups = useConnectionStore(s => s.groups);
+    const credentialProfiles = useCredentialStore(s => s.credentialProfiles);
+    const addToast = useUIStore(s => s.addToast);
+    const createConnection = useConnectionStore(s => s.createConnection);
+    const updateConnection = useConnectionStore(s => s.updateConnection);
     const [form, setForm] = useState<CreateConnectionRequest>({
         name: '',
         host: '',
@@ -32,6 +36,8 @@ export const ConnectionForm: React.FC<Props> = ({ editConnection, onClose }) => 
         rdp_redirect_printers: false,
         rdp_redirect_drives: false,
         ssh_tunnels: [],
+        credential_profile_id: null,
+        override_credentials: false,
     });
 
     const [showAdvanced, setShowAdvanced] = useState(false);
@@ -88,6 +94,9 @@ export const ConnectionForm: React.FC<Props> = ({ editConnection, onClose }) => 
             setLoading(false);
         }
     };
+
+    const selectedProfile = credentialProfiles.find(p => p.id === form.credential_profile_id);
+    const isUsingProfile = !form.override_credentials && selectedProfile;
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
@@ -193,60 +202,125 @@ export const ConnectionForm: React.FC<Props> = ({ editConnection, onClose }) => 
 
                     <div className="flex items-center gap-4 py-2 opacity-50">
                         <div className="h-px bg-border flex-1" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em]">Security Credentials</span>
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em]">Security Settings</span>
                         <div className="h-px bg-border flex-1" />
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {form.protocol === 'RDP' && (
-                            <div className="flex flex-col gap-2">
-                                <label className="text-xs font-semibold text-text-muted uppercase ml-1">Domain</label>
-                                <input className="h-10 bg-base border border-border rounded-lg px-3 focus:outline-none focus:border-accent/50" value={form.domain ?? ''}
-                                    onChange={(e) => setField('domain', e.target.value)} placeholder="CORP (Optional)" />
+                    <div className="flex flex-col gap-4 bg-base/30 p-4 rounded-xl border border-border">
+                        <div className="flex gap-6">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" className="accent-accent" checked={!form.override_credentials} onChange={() => setField('override_credentials', false)} />
+                                <span className="text-sm font-semibold">Use Credential Profile</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" className="accent-accent" checked={!!form.override_credentials} onChange={() => setField('override_credentials', true)} />
+                                <span className="text-sm font-semibold text-text-muted">Custom Local Credentials</span>
+                            </label>
+                        </div>
+
+                        {!form.override_credentials && (
+                            <div className="flex flex-col gap-2 mt-2">
+                                <label className="text-xs font-semibold text-text-muted uppercase ml-1">Select Profile</label>
+                                <select className="h-10 bg-base border border-border rounded-lg px-3 focus:outline-none focus:border-accent/50 text-sm"
+                                    value={form.credential_profile_id ?? ''}
+                                    onChange={(e) => setField('credential_profile_id', e.target.value)}>
+                                    <option value="" disabled>-- Select a Profile --</option>
+                                    {credentialProfiles.map(p => <option key={p.id} value={p.id}>{p.name} ({p.type})</option>)}
+                                </select>
                             </div>
                         )}
-                        <div className={`flex flex-col gap-2 ${form.protocol !== 'RDP' ? 'md:col-span-2' : ''}`}>
-                            <label className="text-xs font-semibold text-text-muted uppercase ml-1">Principal Username</label>
-                            <input className={`h-10 bg-base border border-border rounded-lg px-3 focus:outline-none focus:border-accent/50${errors.username ? ' border-red-500' : ''}`} value={form.username}
-                                onChange={(e) => setField('username', e.target.value)} placeholder={form.protocol === 'PROXMOX' ? 'root@pam' : form.protocol === 'DOCKER' ? 'docker' : 'administrator'} />
-                            {errors.username && <p className="text-red-500 text-[10px] uppercase font-bold ml-1 mt-1">{errors.username}</p>}
-                        </div>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-6">
-                        {(form.protocol === 'SSH' || form.protocol === 'SFTP') && (
-                            <div className="space-y-6">
+                    <div className={`space-y-6 ${isUsingProfile ? 'opacity-50 pointer-events-none grayscale-[0.5]' : ''}`}>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {form.protocol === 'RDP' && (
                                 <div className="flex flex-col gap-2">
-                                    <label className="text-xs font-semibold text-text-muted uppercase ml-1">Authentication Strategy</label>
-                                    <div className="flex gap-2 p-1 bg-base/50 rounded-xl border border-border">
-                                        <button
-                                            type="button"
-                                            onClick={() => setField('use_private_key', false)}
-                                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${!form.use_private_key ? 'bg-accent text-white shadow-lg shadow-accent/20' : 'text-text-muted hover:text-text-primary'}`}
-                                        >
-                                            Standard Password
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setField('use_private_key', true)}
-                                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${form.use_private_key ? 'bg-accent text-white shadow-lg shadow-accent/20' : 'text-text-muted hover:text-text-primary'}`}
-                                        >
-                                            RSA Private Key
-                                        </button>
-                                    </div>
+                                    <label className="text-xs font-semibold text-text-muted uppercase ml-1">Domain</label>
+                                    <input className="h-10 bg-base border border-border rounded-lg px-3 focus:outline-none focus:border-accent/50" value={isUsingProfile ? (selectedProfile.domain || '') : (form.domain ?? '')}
+                                        onChange={(e) => setField('domain', e.target.value)} placeholder="CORP (Optional)" readOnly={!!isUsingProfile} />
                                 </div>
+                            )}
+                            <div className={`flex flex-col gap-2 ${form.protocol !== 'RDP' ? 'md:col-span-2' : ''}`}>
+                                <label className="text-xs font-semibold text-text-muted uppercase ml-1">Principal Username {isUsingProfile ? '(From Profile)' : ''}</label>
+                                <input className={`h-10 bg-base border border-border rounded-lg px-3 focus:outline-none focus:border-accent/50${errors.username && !isUsingProfile ? ' border-red-500' : ''}`} value={isUsingProfile ? (selectedProfile.username || '') : form.username}
+                                    onChange={(e) => setField('username', e.target.value)} placeholder={form.protocol === 'PROXMOX' ? 'root@pam' : form.protocol === 'DOCKER' ? 'docker' : 'administrator'} readOnly={!!isUsingProfile} />
+                                {errors.username && !isUsingProfile && <p className="text-red-500 text-[10px] uppercase font-bold ml-1 mt-1">{errors.username}</p>}
+                            </div>
+                        </div>
 
-                                {!form.use_private_key ? (
+                        <div className="grid grid-cols-1 gap-6">
+                            {(form.protocol === 'SSH' || form.protocol === 'SFTP') && (
+                                <div className="space-y-6">
                                     <div className="flex flex-col gap-2">
-                                        <label className="text-xs font-semibold text-text-muted uppercase ml-1">Account Password</label>
-                                        <div className="relative">
-                                            <input
-                                                type={showPassword ? "text" : "password"}
-                                                className="h-10 w-full bg-base border border-border rounded-lg px-3 pr-10 focus:outline-none focus:border-accent/50 text-sm"
-                                                value={password}
-                                                onChange={(e) => setPassword(e.target.value)}
-                                                placeholder={editConnection && form.password_encrypted ? '•••••••• (STORED)' : '••••••••'}
-                                            />
+                                        <label className="text-xs font-semibold text-text-muted uppercase ml-1">Authentication Strategy</label>
+                                        <div className="flex gap-2 p-1 bg-base/50 rounded-xl border border-border">
+                                            <button
+                                                type="button"
+                                                onClick={() => setField('use_private_key', false)}
+                                                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${!form.use_private_key ? 'bg-accent text-white shadow-lg shadow-accent/20' : 'text-text-muted hover:text-text-primary'}`}
+                                            >
+                                                Standard Password
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setField('use_private_key', true)}
+                                                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${form.use_private_key ? 'bg-accent text-white shadow-lg shadow-accent/20' : 'text-text-muted hover:text-text-primary'}`}
+                                            >
+                                                RSA Private Key
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {!form.use_private_key ? (
+                                        <div className="flex flex-col gap-2">
+                                            <label className="text-xs font-semibold text-text-muted uppercase ml-1">Account Password {isUsingProfile ? '(From Profile)' : ''}</label>
+                                            <div className="relative">
+                                                <input
+                                                    type={showPassword && !isUsingProfile ? "text" : "password"}
+                                                    className="h-10 w-full bg-base border border-border rounded-lg px-3 pr-10 focus:outline-none focus:border-accent/50 text-sm disabled:bg-base/50"
+                                                    value={isUsingProfile ? (selectedProfile.password_encrypted ? '********' : '') : password}
+                                                    onChange={(e) => setPassword(e.target.value)}
+                                                    placeholder={editConnection && form.password_encrypted ? '•••••••• (STORED)' : '••••••••'}
+                                                    readOnly={!!isUsingProfile}
+                                                />
+                                                {!isUsingProfile && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowPassword(!showPassword)}
+                                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
+                                                    >
+                                                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {editConnection && form.password_encrypted && !password && !isUsingProfile && (
+                                                <p className="text-[9px] text-accent/60 font-medium ml-1">Leave empty to keep current password</p>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col gap-2">
+                                            <label className="text-xs font-semibold text-text-muted uppercase ml-1">Private Key (Internal Identity Path) {isUsingProfile ? '(From Profile)' : ''}</label>
+                                            <input type="text" className="h-10 bg-base border border-border rounded-lg px-3 focus:outline-none focus:border-accent/50 text-xs font-mono disabled:bg-base/50" value={isUsingProfile ? (selectedProfile.private_key_encrypted ? '********' : '') : privateKey}
+                                                onChange={(e) => setPrivateKey(e.target.value)}
+                                                placeholder={editConnection ? '(unchanged)' : 'C:\\Users\\admin\\.ssh\\id_rsa'} readOnly={!!isUsingProfile} />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {(form.protocol === 'RDP' || form.protocol === 'VNC' || form.protocol === 'FTP' || form.protocol === 'PROXMOX' || form.protocol === 'DOCKER') && (
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-xs font-semibold text-text-muted uppercase ml-1">Vaulted Password {isUsingProfile ? '(From Profile)' : ''}</label>
+                                    <div className="relative">
+                                        <input
+                                            type={showPassword && !isUsingProfile ? "text" : "password"}
+                                            className="h-10 w-full bg-base border border-border rounded-lg px-3 pr-10 focus:outline-none focus:border-accent/50 text-sm disabled:bg-base/50"
+                                            value={isUsingProfile ? (selectedProfile.password_encrypted ? '********' : '') : password}
+                                            onChange={(e) => setPassword(e.target.value)}
+                                            placeholder={editConnection && form.password_encrypted ? '•••••••• (STORED)' : '••••••••'}
+                                            readOnly={!!isUsingProfile}
+                                        />
+                                        {!isUsingProfile && (
                                             <button
                                                 type="button"
                                                 onClick={() => setShowPassword(!showPassword)}
@@ -254,46 +328,14 @@ export const ConnectionForm: React.FC<Props> = ({ editConnection, onClose }) => 
                                             >
                                                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                             </button>
-                                        </div>
-                                        {editConnection && form.password_encrypted && !password && (
-                                            <p className="text-[9px] text-accent/60 font-medium ml-1">Leave empty to keep current password</p>
                                         )}
                                     </div>
-                                ) : (
-                                    <div className="flex flex-col gap-2">
-                                        <label className="text-xs font-semibold text-text-muted uppercase ml-1">Private Key (Internal Identity Path)</label>
-                                        <input type="text" className="h-10 bg-base border border-border rounded-lg px-3 focus:outline-none focus:border-accent/50 text-xs font-mono" value={privateKey}
-                                            onChange={(e) => setPrivateKey(e.target.value)}
-                                            placeholder={editConnection ? '(unchanged)' : 'C:\\Users\\admin\\.ssh\\id_rsa'} />
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {(form.protocol === 'RDP' || form.protocol === 'VNC' || form.protocol === 'FTP') && (
-                            <div className="flex flex-col gap-2">
-                                <label className="text-xs font-semibold text-text-muted uppercase ml-1">Vaulted Password</label>
-                                <div className="relative">
-                                    <input
-                                        type={showPassword ? "text" : "password"}
-                                        className="h-10 w-full bg-base border border-border rounded-lg px-3 pr-10 focus:outline-none focus:border-accent/50 text-sm"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        placeholder={editConnection && form.password_encrypted ? '•••••••• (STORED)' : '••••••••'}
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowPassword(!showPassword)}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
-                                    >
-                                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                    </button>
+                                    {editConnection && form.password_encrypted && !password && !isUsingProfile && (
+                                        <p className="text-[9px] text-accent/60 font-medium ml-1">Leave empty to keep current password</p>
+                                    )}
                                 </div>
-                                {editConnection && form.password_encrypted && !password && (
-                                    <p className="text-[9px] text-accent/60 font-medium ml-1">Leave empty to keep current password</p>
-                                )}
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
 
                     <div className="space-y-4">

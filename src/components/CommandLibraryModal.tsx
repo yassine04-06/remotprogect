@@ -1,18 +1,16 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, TerminalSquare, Search, Edit2, Trash2 } from 'lucide-react';
-import { useAppStore } from '../store/useAppStore';
+import { useUIStore, useCredentialStore } from '../store';
 import type { SavedCommand } from '../types';
 
 export const CommandLibraryModal: React.FC = () => {
-    const {
-        showCommandLibraryDialog,
-        setShowCommandLibraryDialog,
-        savedCommands,
-        createSavedCommand,
-        updateSavedCommand,
-        deleteSavedCommand
-    } = useAppStore();
+    const showCommandLibraryDialog = useUIStore(s => s.showCommandLibraryDialog);
+    const setShowCommandLibraryDialog = useUIStore(s => s.setShowCommandLibraryDialog);
+    const savedCommands = useCredentialStore(s => s.savedCommands);
+    const createSavedCommand = useCredentialStore(s => s.createSavedCommand);
+    const updateSavedCommand = useCredentialStore(s => s.updateSavedCommand);
+    const deleteSavedCommand = useCredentialStore(s => s.deleteSavedCommand);
 
     const [query, setQuery] = useState('');
     const [editingCmd, setEditingCmd] = useState<SavedCommand | null>(null);

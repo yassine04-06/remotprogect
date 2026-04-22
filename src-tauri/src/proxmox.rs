@@ -150,3 +150,47 @@ pub async fn proxmox_vm_action(
 
     Ok("Azione avviata correttamente".to_string())
 }
+
+#[tauri::command]
+pub fn proxmox_open_console(
+    app: tauri::AppHandle,
+    url: String, // e.g. https://10.0.0.1:8006/?console=kvm&...
+    label: String,
+    title: String,
+    ticket: String,
+) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder, Manager};
+    
+    // Split the URL to get the base domain (e.g. https://10.0.0.1:8006)
+    // and the path+query (e.g. /?console=kvm&vmid=...)
+    let parsed_url: reqwest::Url = url.parse().map_err(|e| format!("URL non valida: {}", e))?;
+    let base_url = format!("{}://{}:{}", parsed_url.scheme(), parsed_url.host_str().unwrap(), parsed_url.port().unwrap_or(8006));
+    
+    // We load the base_url (which doesn't return 401, but the login page).
+    // The initialization script will run on the login page, set the cookie, and then redirect to the actual console url.
+    let inject_script = format!(
+        r#"
+        if (!window.location.search.includes('console=')) {{
+            document.cookie = "PVEAuthCookie={}; path=/";
+            window.location.href = "{}";
+        }}
+        "#,
+        ticket, url
+    );
+
+    // Chiudi la finestra se esiste già
+    if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.close();
+    }
+
+    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(base_url.parse().unwrap()))
+        .title(title)
+        .inner_size(1024.0, 768.0)
+        .center()
+        .resizable(true)
+        .initialization_script(&inject_script)
+        .build()
+        .map_err(|e| format!("Errore apertura finestra console: {}", e))?;
+
+    Ok(())
+}

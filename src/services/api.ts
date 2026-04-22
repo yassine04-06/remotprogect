@@ -17,7 +17,11 @@ import type {
     SshTunnel,
     ProxmoxAuthResponse,
     ProxmoxResource,
-    DockerContainer
+    DockerContainer,
+    CredentialProfile,
+    CreateCredentialProfileRequest,
+    UpdateCredentialProfileRequest,
+    ResolvedCredentials
 } from '../types';
 
 // ── Vault ────────────────────────────────────────────────
@@ -63,6 +67,21 @@ export const updateGroup = (id: string, name: string) =>
     invoke('update_group', { id, name });
 
 export const deleteGroup = (id: string) => invoke('delete_group', { id });
+
+// ── Credential Profiles ──────────────────────────────────
+
+export const getCredentialProfiles = () => invoke<CredentialProfile[]>('get_credential_profiles');
+
+export const createCredentialProfile = (request: CreateCredentialProfileRequest) =>
+    invoke<CredentialProfile>('create_credential_profile', { request });
+
+export const updateCredentialProfile = (request: UpdateCredentialProfileRequest) =>
+    invoke('update_credential_profile', { request });
+
+export const deleteCredentialProfile = (id: string) => invoke('delete_credential_profile', { id });
+
+export const resolveCredentials = (connectionId: string) =>
+    invoke<ResolvedCredentials>('resolve_credentials', { connectionId });
 
 // ── Export / Import ──────────────────────────────────────
 
@@ -150,6 +169,24 @@ export const rdpConnect = (
 
 export const rdpDisconnect = (sessionId: string) =>
     invoke('rdp_disconnect', { sessionId });
+
+export const rdpEmbedWindow = (sessionId: string) =>
+    invoke<boolean>('rdp_embed_window', { sessionId });
+
+export const rdpResizeEmbedded = (sessionId: string, x: number, y: number, width: number, height: number) =>
+    invoke('rdp_resize_embedded', { sessionId, x, y, width, height });
+
+export const rdpSetVisibility = (sessionId: string, visible: boolean) =>
+    invoke('rdp_set_visibility', { sessionId, visible });
+
+export const rdpFocus = (sessionId: string) =>
+    invoke('rdp_focus', { sessionId });
+
+export const rdpSendInput = (sessionId: string, command: string) =>
+    invoke('rdp_send_command', { sessionId, command });
+
+export const rdpIsWindowAlive = (sessionId: string) =>
+    invoke<boolean>('rdp_is_window_alive', { sessionId });
 
 // ── VNC ──────────────────────────────────────────────────
 
@@ -254,3 +291,6 @@ export const ftpRename = (host: string, port: number, username: string, password
 
 export const ftpMkdir = (host: string, port: number, username: string, password?: string | null, path: string = '') =>
     invoke('ftp_mkdir', { host, port, username, password: password ?? null, path });
+
+export const proxmoxOpenConsole = (url: string, label: string, title: string, ticket: string) =>
+    invoke('proxmox_open_console', { url, label, title, ticket });

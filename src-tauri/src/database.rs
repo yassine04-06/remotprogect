@@ -5,9 +5,79 @@ use chrono::Utc;
 
 
 
-const CURRENT_SCHEMA_VERSION: i32 = 5;
+const CURRENT_SCHEMA_VERSION: i32 = 6;
 
 // ── Data Models ──────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CredentialType {
+    SSH,
+    RDP,
+    FTP,
+    Generic,
+}
+
+impl std::fmt::Display for CredentialType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CredentialType::SSH => write!(f, "ssh"),
+            CredentialType::RDP => write!(f, "rdp"),
+            CredentialType::FTP => write!(f, "ftp"),
+            CredentialType::Generic => write!(f, "generic"),
+        }
+    }
+}
+
+impl std::str::FromStr for CredentialType {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "ssh" => Ok(CredentialType::SSH),
+            "rdp" => Ok(CredentialType::RDP),
+            "ftp" => Ok(CredentialType::FTP),
+            "generic" => Ok(CredentialType::Generic),
+            _ => Ok(CredentialType::Generic),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialProfile {
+    pub id: String,
+    pub name: String,
+    pub r#type: String, // Maps to CredentialType visually
+    pub description: Option<String>,
+    pub username: Option<String>,
+    pub password_encrypted: Option<String>,
+    pub private_key_encrypted: Option<String>,
+    pub domain: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateCredentialProfileRequest {
+    pub name: String,
+    pub r#type: String,
+    pub description: Option<String>,
+    pub username: Option<String>,
+    pub password_encrypted: Option<String>,
+    pub private_key_encrypted: Option<String>,
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateCredentialProfileRequest {
+    pub id: String,
+    pub name: String,
+    pub r#type: String,
+    pub description: Option<String>,
+    pub username: Option<String>,
+    pub password_encrypted: Option<String>,
+    pub private_key_encrypted: Option<String>,
+    pub domain: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SshTunnel {
@@ -42,6 +112,8 @@ pub struct ServerConnection {
     pub rdp_redirect_printers: bool,
     pub rdp_redirect_drives: bool,
     pub ssh_tunnels: Option<Vec<SshTunnel>>,
+    pub credential_profile_id: Option<String>,
+    pub override_credentials: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -74,6 +146,8 @@ pub struct CreateConnectionRequest {
     pub rdp_redirect_printers: Option<bool>,
     pub rdp_redirect_drives: Option<bool>,
     pub ssh_tunnels: Option<Vec<SshTunnel>>,
+    pub credential_profile_id: Option<String>,
+    pub override_credentials: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +171,8 @@ pub struct UpdateConnectionRequest {
     pub rdp_redirect_printers: Option<bool>,
     pub rdp_redirect_drives: Option<bool>,
     pub ssh_tunnels: Option<Vec<SshTunnel>>,
+    pub credential_profile_id: Option<String>,
+    pub override_credentials: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,6 +180,7 @@ pub struct ExportData {
     pub version: i32,
     pub connections: Vec<ServerConnection>,
     pub groups: Vec<Group>,
+    pub credential_profiles: Vec<CredentialProfile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,6 +248,9 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
     }
     if current_version < 5 {
         migrate_v5(conn)?;
+    }
+    if current_version < 6 {
+        migrate_v6(conn)?;
     }
     Ok(())
 }
@@ -335,6 +415,29 @@ fn migrate_v5(conn: &Connection) -> SqlResult<()> {
     Ok(())
 }
 
+fn migrate_v6(conn: &Connection) -> SqlResult<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS credential_profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            type TEXT NOT NULL,
+            description TEXT,
+            username TEXT,
+            password_encrypted TEXT,
+            private_key_encrypted TEXT,
+            domain TEXT,
+            created_at INTEGER,
+            updated_at INTEGER
+        );
+        ALTER TABLE connections ADD COLUMN credential_profile_id TEXT;
+        ALTER TABLE connections ADD COLUMN override_credentials INTEGER DEFAULT 1;
+        INSERT OR REPLACE INTO schema_version (version) VALUES (6);
+        ",
+    )?;
+    Ok(())
+}
+
 // ── Connection CRUD ──────────────────────────────────────
 
 pub fn create_connection(
@@ -364,13 +467,15 @@ pub fn create_connection(
         rdp_redirect_printers: req.rdp_redirect_printers.unwrap_or(false),
         rdp_redirect_drives: req.rdp_redirect_drives.unwrap_or(false),
         ssh_tunnels: req.ssh_tunnels.clone(),
+        credential_profile_id: req.credential_profile_id.clone(),
+        override_credentials: req.override_credentials.unwrap_or(true), // Default to true if not set (for manual creations)
         created_at: now.clone(),
         updated_at: now,
     };
 
     conn.execute(
-        "INSERT INTO connections (id, name, host, port, protocol, username, password_encrypted, private_key_encrypted, group_id, use_private_key, rdp_width, rdp_height, rdp_fullscreen, domain, rdp_color_depth, rdp_redirect_audio, rdp_redirect_printers, rdp_redirect_drives, ssh_tunnels, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+        "INSERT INTO connections (id, name, host, port, protocol, username, password_encrypted, private_key_encrypted, group_id, use_private_key, rdp_width, rdp_height, rdp_fullscreen, domain, rdp_color_depth, rdp_redirect_audio, rdp_redirect_printers, rdp_redirect_drives, ssh_tunnels, credential_profile_id, override_credentials, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
         params![
             res.id, res.name, res.host, res.port, res.protocol, res.username,
             res.password_encrypted, res.private_key_encrypted, res.group_id,
@@ -379,6 +484,7 @@ pub fn create_connection(
             res.rdp_redirect_audio as i32, res.rdp_redirect_printers as i32,
             res.rdp_redirect_drives as i32,
             serde_json::to_string(&res.ssh_tunnels).unwrap_or_else(|_| "[]".to_string()),
+            res.credential_profile_id, res.override_credentials as i32,
             res.created_at, res.updated_at,
         ],
     )
@@ -396,7 +502,7 @@ pub fn update_connection(conn: &Connection, req: UpdateConnectionRequest) -> Res
          password_encrypted=?6, private_key_encrypted=?7, group_id=?8, use_private_key=?9,
          rdp_width=?10, rdp_height=?11, rdp_fullscreen=?12, domain=?13, rdp_color_depth=?14,
          rdp_redirect_audio=?15, rdp_redirect_printers=?16, rdp_redirect_drives=?17,
-         ssh_tunnels=?18, updated_at=?19 WHERE id=?20",
+         ssh_tunnels=?18, credential_profile_id=?19, override_credentials=?20, updated_at=?21 WHERE id=?22",
         params![
             req.name, req.host, req.port, req.protocol, req.username,
             req.password_encrypted, req.private_key_encrypted, req.group_id,
@@ -407,7 +513,8 @@ pub fn update_connection(conn: &Connection, req: UpdateConnectionRequest) -> Res
             req.rdp_redirect_audio.unwrap_or(false) as i32,
             req.rdp_redirect_printers.unwrap_or(false) as i32,
             req.rdp_redirect_drives.unwrap_or(false) as i32,
-            tunnels_json, now, req.id,
+            tunnels_json, req.credential_profile_id,
+            req.override_credentials.unwrap_or(true) as i32, now, req.id,
         ],
     )
     .map_err(|e| format!("Failed to update connection: {}", e))?;
@@ -423,7 +530,7 @@ pub fn delete_connection(conn: &Connection, id: &str) -> Result<(), String> {
 
 pub fn get_connections(conn: &Connection) -> Result<Vec<ServerConnection>, String> {
     let mut stmt = conn
-        .prepare("SELECT id, name, host, port, protocol, username, password_encrypted, private_key_encrypted, group_id, use_private_key, rdp_width, rdp_height, rdp_fullscreen, domain, rdp_color_depth, rdp_redirect_audio, rdp_redirect_printers, rdp_redirect_drives, ssh_tunnels, created_at, updated_at FROM connections ORDER BY name")
+        .prepare("SELECT id, name, host, port, protocol, username, password_encrypted, private_key_encrypted, group_id, use_private_key, rdp_width, rdp_height, rdp_fullscreen, domain, rdp_color_depth, rdp_redirect_audio, rdp_redirect_printers, rdp_redirect_drives, ssh_tunnels, credential_profile_id, override_credentials, created_at, updated_at FROM connections ORDER BY name")
         .map_err(|e| format!("Failed to prepare query: {}", e))?;
 
     let connections = stmt
@@ -449,8 +556,10 @@ pub fn get_connections(conn: &Connection) -> Result<Vec<ServerConnection>, Strin
                 rdp_redirect_drives: row.get::<_, i32>(17)? != 0,
                 ssh_tunnels: row.get::<_, Option<String>>(18)?
                     .and_then(|s| serde_json::from_str(&s).ok()),
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
+                credential_profile_id: row.get(19)?,
+                override_credentials: row.get::<_, i32>(20)? != 0,
+                created_at: row.get(21)?,
+                updated_at: row.get(22)?,
             })
         })
         .map_err(|e| format!("Failed to query connections: {}", e))?
@@ -524,10 +633,12 @@ pub fn get_groups(conn: &Connection) -> Result<Vec<Group>, String> {
 pub fn export_all(conn: &Connection) -> Result<ExportData, String> {
     let connections = get_connections(conn)?;
     let groups = get_groups(conn)?;
+    let credential_profiles = get_credential_profiles(conn)?;
     Ok(ExportData {
         version: CURRENT_SCHEMA_VERSION,
         connections,
         groups,
+        credential_profiles,
     })
 }
 
@@ -553,14 +664,25 @@ pub fn import_all(conn: &Connection, data: ExportData) -> Result<(), String> {
             .map_err(|e| format!("Failed to import group '{}': {}", group.name, e))?;
         }
 
+        for cp in &data.credential_profiles {
+            conn.execute(
+                "INSERT INTO credential_profiles (id, name, type, description, username, password_encrypted, private_key_encrypted, domain, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                 params![
+                     cp.id, cp.name, cp.r#type, cp.description, cp.username, cp.password_encrypted,
+                     cp.private_key_encrypted, cp.domain, cp.created_at, cp.updated_at
+                 ]
+            ).map_err(|e| format!("Failed to import credential profile '{}': {}", cp.name, e))?;
+        }
+
         for c in &data.connections {
             conn.execute(
                 "INSERT INTO connections (id, name, host, port, protocol, username,
                  password_encrypted, private_key_encrypted, group_id, use_private_key,
                  rdp_width, rdp_height, rdp_fullscreen, domain, rdp_color_depth,
                  rdp_redirect_audio, rdp_redirect_printers, rdp_redirect_drives,
-                 ssh_tunnels, created_at, updated_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)",
+                 ssh_tunnels, credential_profile_id, override_credentials, created_at, updated_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)",
                 params![
                     c.id, c.name, c.host, c.port, c.protocol, c.username,
                     c.password_encrypted, c.private_key_encrypted, c.group_id,
@@ -569,6 +691,7 @@ pub fn import_all(conn: &Connection, data: ExportData) -> Result<(), String> {
                     c.rdp_redirect_audio as i32, c.rdp_redirect_printers as i32,
                     c.rdp_redirect_drives as i32,
                     serde_json::to_string(&c.ssh_tunnels).unwrap_or_else(|_| "[]".to_string()),
+                    c.credential_profile_id, c.override_credentials as i32,
                     c.created_at, c.updated_at,
                 ],
             )
@@ -674,5 +797,85 @@ pub fn update_saved_command(conn: &Connection, req: UpdateSavedCommandRequest) -
 pub fn delete_saved_command(conn: &Connection, id: &str) -> Result<(), String> {
     conn.execute("DELETE FROM saved_commands WHERE id=?1", params![id])
         .map_err(|e| format!("Failed to delete saved command: {}", e))?;
+    Ok(())
+}
+
+// ── Credential Profiles CRUD ───────────────────────────────
+
+pub fn create_credential_profile(conn: &Connection, req: CreateCredentialProfileRequest) -> Result<CredentialProfile, String> {
+    let id = Uuid::new_v4().to_string();
+    let now = Utc::now().timestamp();
+
+    let res = CredentialProfile {
+        id: id.clone(),
+        name: req.name.clone(),
+        r#type: req.r#type.clone(),
+        description: req.description.clone(),
+        username: req.username.clone(),
+        password_encrypted: req.password_encrypted.clone(),
+        private_key_encrypted: req.private_key_encrypted.clone(),
+        domain: req.domain.clone(),
+        created_at: now,
+        updated_at: now,
+    };
+
+    conn.execute(
+        "INSERT INTO credential_profiles (id, name, type, description, username, password_encrypted, private_key_encrypted, domain, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            res.id, res.name, res.r#type, res.description, res.username,
+            res.password_encrypted, res.private_key_encrypted, res.domain,
+            res.created_at, res.updated_at
+        ],
+    )
+    .map_err(|e| format!("Failed to create credential profile: {}", e))?;
+
+    Ok(res)
+}
+
+pub fn get_credential_profiles(conn: &Connection) -> Result<Vec<CredentialProfile>, String> {
+    let mut stmt = conn
+        .prepare("SELECT id, name, type, description, username, password_encrypted, private_key_encrypted, domain, created_at, updated_at FROM credential_profiles ORDER BY name")
+        .map_err(|e| e.to_string())?;
+
+    let profiles = stmt
+        .query_map([], |row| {
+            Ok(CredentialProfile {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                r#type: row.get(2)?,
+                description: row.get(3)?,
+                username: row.get(4)?,
+                password_encrypted: row.get(5)?,
+                private_key_encrypted: row.get(6)?,
+                domain: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(profiles)
+}
+
+pub fn update_credential_profile(conn: &Connection, req: UpdateCredentialProfileRequest) -> Result<(), String> {
+    let now = Utc::now().timestamp();
+
+    conn.execute(
+        "UPDATE credential_profiles SET name=?1, type=?2, description=?3, username=?4, password_encrypted=?5, private_key_encrypted=?6, domain=?7, updated_at=?8 WHERE id=?9",
+        params![
+            req.name, req.r#type, req.description, req.username, req.password_encrypted,
+            req.private_key_encrypted, req.domain, now, req.id
+        ],
+    )
+    .map_err(|e| format!("Failed to update credential profile: {}", e))?;
+    Ok(())
+}
+
+pub fn delete_credential_profile(conn: &Connection, id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM credential_profiles WHERE id=?1", params![id])
+        .map_err(|e| format!("Failed to delete credential profile: {}", e))?;
     Ok(())
 }

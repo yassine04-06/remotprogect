@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { useAppStore } from '../store/useAppStore';
+import { useUIStore } from '../store';
 import * as api from '../services/api';
 import { Terminal, Activity, Zap, Play, Loader2 } from 'lucide-react';
 import type { ServerConnection } from '../types';
 
 export function ExternalToolsMenu({ connection, onClose }: { connection: ServerConnection, onClose: () => void }) {
-    const { addToast } = useAppStore();
+    const addToast = useUIStore(s => s.addToast);
     const [isRunning, setIsRunning] = useState<string | null>(null);
 
     const tools = [

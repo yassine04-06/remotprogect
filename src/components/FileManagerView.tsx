@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useAppStore } from '../store/useAppStore';
+import { useConnectionStore, useTabStore, useUIStore } from '../store';
 import * as api from '../services/api';
 import type { Tab, FileNode } from '../types';
 import { Folder, File, Upload, Download, Trash, RefreshCw, ChevronRight, CornerLeftUp, Loader2, FolderPlus, FolderOpen } from 'lucide-react';
@@ -12,7 +12,9 @@ interface FileManagerViewProps {
 }
 
 export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
-    const { connections, updateTabStatus, addToast } = useAppStore();
+    const connections = useConnectionStore(s => s.connections);
+    const updateTabStatus = useTabStore(s => s.updateTabStatus);
+    const addToast = useUIStore(s => s.addToast);
 
     const [currentPath, setCurrentPath] = useState('/');
     const [files, setFiles] = useState<FileNode[]>([]);
@@ -33,16 +35,14 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
             const conn = connections.find(c => c.id === tab.connectionId);
             if (!conn) throw new Error("Connection not found");
 
-            let password = null;
-            let privateKeyPath = null;
-            if (!conn.use_private_key && conn.password_encrypted) password = await api.decryptValue(conn.password_encrypted);
-            else if (conn.use_private_key && conn.private_key_encrypted) privateKeyPath = await api.decryptValue(conn.private_key_encrypted);
+            const creds = await api.resolveCredentials(conn.id);
+            const username = creds.username || conn.username;
 
             let res;
             if (isSftp) {
-                res = await api.sftpListDir(conn.host, conn.port, conn.username, password, privateKeyPath, path);
+                res = await api.sftpListDir(conn.host, conn.port, username, creds.password_decrypted || null, creds.private_key_decrypted || null, path);
             } else {
-                res = await api.ftpListDir(conn.host, conn.port, conn.username, password, path);
+                res = await api.ftpListDir(conn.host, conn.port, username, creds.password_decrypted || null, path);
             }
 
             setFiles(res.files);
@@ -127,10 +127,8 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
             const conn = connections.find(c => c.id === tab.connectionId);
             if (!conn) throw new Error("Connection not found");
 
-            let password = null;
-            let privateKeyPath = null;
-            if (!conn.use_private_key && conn.password_encrypted) password = await api.decryptValue(conn.password_encrypted);
-            else if (conn.use_private_key && conn.private_key_encrypted) privateKeyPath = await api.decryptValue(conn.private_key_encrypted);
+            const creds = await api.resolveCredentials(conn.id);
+            const username = creds.username || conn.username;
 
             // Extract filename from local path (naive cross-platform split)
             const fileName = localFile.split(/[/\\]/).pop();
@@ -139,9 +137,9 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
             addToast({ type: 'info', title: 'Upload Started', description: `Uploading ${fileName}...` });
 
             if (isSftp) {
-                await api.sftpUpload(conn.host, conn.port, conn.username, password, privateKeyPath, remotePath, localFile);
+                await api.sftpUpload(conn.host, conn.port, username, creds.password_decrypted || null, creds.private_key_decrypted || null, remotePath, localFile);
             } else {
-                await api.ftpUpload(conn.host, conn.port, conn.username, password, remotePath, localFile);
+                await api.ftpUpload(conn.host, conn.port, username, creds.password_decrypted || null, remotePath, localFile);
             }
             addToast({ type: 'success', title: 'Upload Complete', description: fileName! });
         } catch (err) {
@@ -181,17 +179,15 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
             const conn = connections.find(c => c.id === tab.connectionId);
             if (!conn) throw new Error("Connection not found");
 
-            let password = null;
-            let privateKeyPath = null;
-            if (!conn.use_private_key && conn.password_encrypted) password = await api.decryptValue(conn.password_encrypted);
-            else if (conn.use_private_key && conn.private_key_encrypted) privateKeyPath = await api.decryptValue(conn.private_key_encrypted);
+            const creds = await api.resolveCredentials(conn.id);
+            const username = creds.username || conn.username;
 
             addToast({ type: 'info', title: 'Download Started', description: `Downloading ${selectedFile.name}...` });
 
             if (isSftp) {
-                await api.sftpDownload(conn.host, conn.port, conn.username, password, privateKeyPath, selectedFile.path, localDest);
+                await api.sftpDownload(conn.host, conn.port, username, creds.password_decrypted || null, creds.private_key_decrypted || null, selectedFile.path, localDest);
             } else {
-                await api.ftpDownload(conn.host, conn.port, conn.username, password, selectedFile.path, localDest);
+                await api.ftpDownload(conn.host, conn.port, username, creds.password_decrypted || null, selectedFile.path, localDest);
             }
             addToast({ type: 'success', title: 'Download Complete', description: selectedFile.name });
         } catch (err) {
@@ -212,15 +208,13 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
             const conn = connections.find(c => c.id === tab.connectionId);
             if (!conn) throw new Error("Connection not found");
 
-            let password = null;
-            let privateKeyPath = null;
-            if (!conn.use_private_key && conn.password_encrypted) password = await api.decryptValue(conn.password_encrypted);
-            else if (conn.use_private_key && conn.private_key_encrypted) privateKeyPath = await api.decryptValue(conn.private_key_encrypted);
+            const creds = await api.resolveCredentials(conn.id);
+            const username = creds.username || conn.username;
 
             if (isSftp) {
-                await api.sftpDelete(conn.host, conn.port, conn.username, password, privateKeyPath, selectedFile.path, selectedFile.is_dir);
+                await api.sftpDelete(conn.host, conn.port, username, creds.password_decrypted || null, creds.private_key_decrypted || null, selectedFile.path, selectedFile.is_dir);
             } else {
-                await api.ftpDelete(conn.host, conn.port, conn.username, password, selectedFile.path, selectedFile.is_dir);
+                await api.ftpDelete(conn.host, conn.port, username, creds.password_decrypted || null, selectedFile.path, selectedFile.is_dir);
             }
 
             addToast({ type: 'success', title: 'Deleted', description: selectedFile.name });
@@ -241,17 +235,15 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
             const conn = connections.find(c => c.id === tab.connectionId);
             if (!conn) throw new Error("Connection not found");
 
-            let password = null;
-            let privateKeyPath = null;
-            if (!conn.use_private_key && conn.password_encrypted) password = await api.decryptValue(conn.password_encrypted);
-            else if (conn.use_private_key && conn.private_key_encrypted) privateKeyPath = await api.decryptValue(conn.private_key_encrypted);
+            const creds = await api.resolveCredentials(conn.id);
+            const username = creds.username || conn.username;
 
             const remotePath = `${currentPath === '/' ? '' : currentPath}/${name}`;
 
             if (isSftp) {
-                await api.sftpMkdir(conn.host, conn.port, conn.username, password, privateKeyPath, remotePath);
+                await api.sftpMkdir(conn.host, conn.port, username, creds.password_decrypted || null, creds.private_key_decrypted || null, remotePath);
             } else {
-                await api.ftpMkdir(conn.host, conn.port, conn.username, password, remotePath);
+                await api.ftpMkdir(conn.host, conn.port, username, creds.password_decrypted || null, remotePath);
             }
 
             addToast({ type: 'success', title: 'Folder Created', description: name });

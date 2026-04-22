@@ -1,191 +1,383 @@
-import { useEffect, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
-import { useAppStore } from '../store/useAppStore';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useConnectionStore, useTabStore, useUIStore } from '../store';
 import * as api from '../services/api';
 import type { Tab } from '../types';
-import { Monitor, RefreshCw } from 'lucide-react';
+import { Monitor, RefreshCw, Loader2, Maximize2, X, Wifi, WifiOff, ShieldCheck } from 'lucide-react';
+import { RdpToolbar } from './RdpToolbar';
 
 interface RdpViewProps {
     tab: Tab;
     isActive: boolean;
 }
 
+type EmbedStatus =
+    | 'idle'
+    | 'launching'
+    | 'embedding'
+    | 'auth'
+    | 'embedded'
+    | 'external'
+    | 'disconnected'
+    | 'error';
+
 export function RdpView({ tab, isActive }: RdpViewProps) {
-    const { connections, closeTab, updateTabStatus, addToast } = useAppStore();
-    const [status, setStatus] = useState(tab.status);
-    const [availability, setAvailability] = useState<{ available: boolean; binary: string; message: string } | null>(null);
+    const connections = useConnectionStore(s => s.connections);
+    const closeTab = useTabStore(s => s.closeTab);
+    const updateTabStatus = useTabStore(s => s.updateTabStatus);
+    const addToast = useUIStore(s => s.addToast);
+    const [embedStatus, setEmbedStatus] = useState<EmbedStatus>('idle');
+    const [errorMsg, setErrorMsg] = useState('');
+    const [disconnectCode, setDisconnectCode] = useState<number | null>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        let isMounted = true;
+    // Track whether the session is currently embedded (for resize logic)
+    const isEmbeddedRef = useRef(false);
 
-        const init = async () => {
-            try {
-                const avail = await api.rdpCheckAvailable();
-                if (isMounted) {
-                    setAvailability({ available: avail.available, binary: 'mstsc', message: avail.available ? 'Available' : 'RDP client not found' });
+    // ── Core: start a fresh RDP session ────────────────────────────────────
 
-                    if (avail.available) {
-                        setStatus('connecting');
-                        updateTabStatus(tab.id, 'connecting');
-
-                        const conn = tab.connection || connections.find(c => c.id === tab.connectionId);
-                        if (conn) {
-                            let pwd = undefined;
-                            if (conn.password_encrypted) {
-                                pwd = await api.decryptValue(conn.password_encrypted);
-                            }
-                            await api.rdpConnect(
-                                tab.id,
-                                conn.host,
-                                conn.port,
-                                conn.username,
-                                pwd,
-                                conn.rdp_width,
-                                conn.rdp_height,
-                                conn.rdp_fullscreen,
-                                conn.domain,
-                                conn.rdp_color_depth,
-                                conn.rdp_redirect_audio,
-                                conn.rdp_redirect_printers,
-                                conn.rdp_redirect_drives
-                            );
-                            if (isMounted) {
-                                setStatus('connected');
-                                updateTabStatus(tab.id, 'connected');
-                                addToast({ type: 'info', title: 'RDP Launched', description: 'Remote Desktop is running in a separate window.' });
-                            }
-                        }
-                    } else {
-                        setStatus('error');
-                        updateTabStatus(tab.id, 'error');
-                    }
-                }
-            } catch (err: any) {
-                if (isMounted) {
-                    setStatus('error');
-                    updateTabStatus(tab.id, 'error');
-                    addToast({ type: 'error', title: 'RDP Launch Failed', description: String(err) });
-                }
-            }
-        };
-
-        const setupListener = async () => {
-            const unlisten = await listen<{ session_id: string; status: string; message: string }>(`rdp:status:${tab.id}`, (e) => {
-                if (!isMounted) return;
-
-                setStatus(e.payload.status as any);
-                updateTabStatus(tab.id, e.payload.status as any);
-
-                if (e.payload.status === 'error') {
-                    addToast({ type: 'error', title: 'RDP Error', description: e.payload.message });
-                } else if (e.payload.status === 'disconnected') {
-                    addToast({ type: 'info', title: 'RDP Session Ended', description: e.payload.message });
-                }
-            });
-            return unlisten;
-        };
-
-        let unlistenFn: (() => void) | null = null;
-        setupListener().then(unlisten => { unlistenFn = unlisten; });
-
-        init();
-
-        return () => {
-            isMounted = false;
-            if (unlistenFn) unlistenFn();
-            api.rdpDisconnect(tab.id).catch(() => { });
-        };
-    }, []);
-
-    const handleReconnect = async () => {
-        setStatus('connecting');
+    const startConnection = useCallback(async () => {
+        setEmbedStatus('launching');
+        setErrorMsg('');
+        setDisconnectCode(null);
         updateTabStatus(tab.id, 'connecting');
 
-        const conn = tab.connection || connections.find(c => c.id === tab.connectionId);
-        if (conn) {
-            try {
-                let pwd = undefined;
-                if (conn.password_encrypted) {
-                    pwd = await api.decryptValue(conn.password_encrypted);
-                }
-                await api.rdpConnect(
-                    tab.id,
-                    conn.host,
-                    conn.port,
-                    conn.username,
-                    pwd,
-                    conn.rdp_width,
-                    conn.rdp_height,
-                    conn.rdp_fullscreen,
-                    conn.domain,
-                    conn.rdp_color_depth,
-                    conn.rdp_redirect_audio,
-                    conn.rdp_redirect_printers,
-                    conn.rdp_redirect_drives
-                );
-                setStatus('connected');
-                updateTabStatus(tab.id, 'connected');
-                addToast({ type: 'info', title: 'RDP Launched', description: 'Remote Desktop is running in a separate window.' });
-            } catch (err: any) {
-                setStatus('error');
+        try {
+            const avail = await api.rdpCheckAvailable();
+            if (!avail.available) {
+                setEmbedStatus('error');
+                setErrorMsg('No RDP client found on your system.');
                 updateTabStatus(tab.id, 'error');
+                return;
             }
+
+            const conn = tab.connection ?? connections.find(c => c.id === tab.connectionId);
+            if (!conn) {
+                setEmbedStatus('error');
+                setErrorMsg('Connection details not found.');
+                updateTabStatus(tab.id, 'error');
+                return;
+            }
+
+            const creds = await api.resolveCredentials(conn.id);
+
+            setEmbedStatus('embedding');
+
+            // Launch the C# helper (hidden off-screen) and wait for HWND handshake
+            await api.rdpConnect(
+                tab.id,
+                conn.host,
+                conn.port,
+                creds.username || conn.username,
+                creds.password_decrypted || '',
+                conn.rdp_width,
+                conn.rdp_height,
+                conn.rdp_fullscreen,
+                creds.domain || conn.domain,
+                conn.rdp_color_depth,
+                conn.rdp_redirect_audio,
+                conn.rdp_redirect_printers,
+                conn.rdp_redirect_drives,
+            );
+
+            // Confirm the session is tracked
+            const embedded = await api.rdpEmbedWindow(tab.id);
+
+            if (embedded) {
+                isEmbeddedRef.current = true;
+                setEmbedStatus('embedded');
+                updateTabStatus(tab.id, 'connected');
+                addToast({ type: 'success', title: 'RDP Connected', description: `Connected to ${conn.name}` });
+
+                // Position the window correctly right away
+                await syncPosition();
+
+                // If this tab is active, also give focus
+                if (isActive) {
+                    api.rdpFocus(tab.id).catch(() => {});
+                }
+            } else {
+                // mstsc fallback — no embedding available
+                isEmbeddedRef.current = false;
+                setEmbedStatus('external');
+                updateTabStatus(tab.id, 'connected');
+                addToast({ type: 'info', title: 'RDP Launched', description: 'Running in external window.' });
+            }
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            setEmbedStatus('error');
+            setErrorMsg(msg);
+            updateTabStatus(tab.id, 'error');
+            addToast({ type: 'error', title: 'RDP Failed', description: msg });
         }
-    };
+    }, [tab, connections, updateTabStatus, addToast, isActive]);
+
+    // ── Position sync (DPI-aware, via Rust backend) ─────────────────────────
+
+    const syncPosition = useCallback(async () => {
+        if (!containerRef.current || !isEmbeddedRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        // Rust backend converts logical px → physical px using window.scale_factor()
+        await api.rdpResizeEmbedded(
+            tab.id,
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+        ).catch(() => {});
+    }, [tab.id]);
+
+    // ── Mount / unmount ─────────────────────────────────────────────────────
+
+    useEffect(() => {
+        startConnection();
+
+        return () => {
+            isEmbeddedRef.current = false;
+            api.rdpDisconnect(tab.id).catch(() => {});
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // ── Real-time event listener (replaces polling) ─────────────────────────
+    //
+    // The C# helper emits structured lines on stdout → Rust re-emits them as
+    // Tauri events named "rdp-event-<session_id>".
+    // We listen here and react: connected / disconnected / fatal / warning.
+
+    useEffect(() => {
+        if (embedStatus !== 'embedded') return;
+
+        let unlisten: UnlistenFn | undefined;
+
+        const setupListener = async () => {
+            unlisten = await listen<string>(`rdp-event-${tab.id}`, ({ payload }) => {
+                const line = payload.trim();
+
+                if (line === 'EVENT:connected') {
+                    // Start auth state phase
+                    setEmbedStatus('auth');
+                    setTimeout(() => {
+                        setEmbedStatus('embedded');
+                        updateTabStatus(tab.id, 'connected');
+                    }, 500); // Small cinematic delay to show "Securing connection"
+                } else if (line.startsWith('EVENT:warning:')) {
+                    // ignore generic warnings unless tracking them
+                } else if (line.startsWith('EVENT:disconnected:')) {
+                    const code = parseInt(line.split(':')[2] ?? '0', 10);
+                    setDisconnectCode(code);
+                    isEmbeddedRef.current = false;
+                    setEmbedStatus('disconnected');
+                    updateTabStatus(tab.id, 'disconnected');
+                } else if (line.startsWith('EVENT:fatal:')) {
+                    const code = parseInt(line.split(':')[2] ?? '0', 10);
+                    isEmbeddedRef.current = false;
+                    setEmbedStatus('error');
+                    setErrorMsg(`RDP fatal error (code ${code}). The session ended unexpectedly.`);
+                    updateTabStatus(tab.id, 'error');
+                } else if (line === 'CLOSED') {
+                    // Process exited
+                    if (embedStatus === 'embedded') {
+                        isEmbeddedRef.current = false;
+                        setEmbedStatus('disconnected');
+                        updateTabStatus(tab.id, 'disconnected');
+                    }
+                }
+            });
+        };
+
+        setupListener();
+        return () => { unlisten?.(); };
+    }, [embedStatus, tab.id, updateTabStatus]);
+
+    // ── Resize observer + Tauri window move/resize events ──────────────────
+
+    useEffect(() => {
+        if (embedStatus !== 'embedded' || !containerRef.current) return;
+
+        const handleResize = () => syncPosition();
+
+        const observer = new ResizeObserver(handleResize);
+        observer.observe(containerRef.current);
+        window.addEventListener('resize', handleResize);
+
+        let unlistenMove: UnlistenFn | undefined;
+        let unlistenResized: UnlistenFn | undefined;
+
+        const setupTauriListeners = async () => {
+            const win = getCurrentWindow();
+            unlistenMove    = await win.onMoved(handleResize);
+            unlistenResized = await win.onResized(handleResize);
+        };
+        setupTauriListeners();
+
+        // Sync immediately
+        syncPosition();
+
+        return () => {
+            observer.disconnect();
+            window.removeEventListener('resize', handleResize);
+            unlistenMove?.();
+            unlistenResized?.();
+        };
+    }, [embedStatus, syncPosition]);
+
+    // ── Tab switch: HIDE/SHOW + FOCUS via native Win32 ─────────────────────
+
+    useEffect(() => {
+        if (!isEmbeddedRef.current) return;
+
+        if (isActive) {
+            // Show the window then sync position, then send keyboard focus
+            api.rdpSetVisibility(tab.id, true)
+                .then(() => syncPosition())
+                .then(() => api.rdpFocus(tab.id))
+                .catch(() => {});
+        } else {
+            // Hide natively — no off-screen hack
+            api.rdpSetVisibility(tab.id, false).catch(() => {});
+        }
+    }, [isActive, tab.id, syncPosition]);
+
+    // ── Reconnect handler ───────────────────────────────────────────────────
+
+    const handleReconnect = useCallback(() => {
+        setEmbedStatus('idle');
+        setErrorMsg('');
+        setDisconnectCode(null);
+        startConnection();
+    }, [startConnection]);
+
+    // ── Render: embedded state ─────────────────────────────────────────────
+
+    if (embedStatus === 'embedded') {
+        return (
+            <div
+                ref={containerRef}
+                className="w-full h-full bg-black flex flex-col relative"
+                onMouseEnter={() => api.rdpFocus(tab.id).catch(() => {})}
+            >
+                <RdpToolbar 
+                    sessionId={tab.id}
+                    connectionName={tab.connectionName}
+                    onDisconnect={() => closeTab(tab.id)}
+                    onReconnect={handleReconnect}
+                    embedStatus={embedStatus}
+                />
+                
+                {/* The ActiveX will be overlaid here by Rust, so we just provide the bounding box */}
+                <div className="flex-1 w-full" />
+            </div>
+        );
+    }
+
+    // ── Render: all other states — status card ──────────────────────────────
 
     return (
-        <div className={`w-full h-full flex items-center justify-center bg-base ${isActive ? 'block' : 'hidden'}`}>
+        <div
+            className={`w-full h-full flex items-center justify-center bg-base ${isActive ? 'flex' : 'hidden'}`}
+        >
             <div className="bg-surface border border-border rounded-xl p-8 max-w-md w-full text-center shadow-xl">
-                <div className="w-16 h-16 mx-auto bg-blue-500/10 rounded-2xl flex items-center justify-center mb-6">
-                    <Monitor className="w-8 h-8 text-blue-400" />
+                {/* Icon */}
+                <div className={`w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-6 ${
+                    embedStatus === 'error' || embedStatus === 'disconnected'
+                        ? 'bg-red-500/10'
+                        : 'bg-blue-500/10'
+                }`}>
+                    {embedStatus === 'disconnected'
+                        ? <WifiOff className="w-8 h-8 text-red-400" />
+                        : <Monitor className={`w-8 h-8 ${embedStatus === 'error' ? 'text-red-400' : 'text-blue-400'}`} />
+                    }
                 </div>
 
-                <h2 className="text-xl font-bold text-text-primary mb-2">
-                    {tab.connectionName}
-                </h2>
+                <h2 className="text-xl font-bold text-text-primary mb-2">{tab.connectionName}</h2>
 
+                {/* Status messages */}
                 <div className="mb-8">
-                    {status === 'connecting' && (
-                        <p className="text-blue-400 animate-pulse flex items-center justify-center gap-2">
-                            <RefreshCw className="w-4 h-4 animate-spin" /> Launching RDP Client...
-                        </p>
-                    )}
-                    {status === 'connected' && (
-                        <p className="text-green-400">RDP session is active in a separate window.</p>
-                    )}
-                    {status === 'disconnected' && (
-                        <p className="text-text-muted">The RDP session has ended.</p>
-                    )}
-                    {status === 'error' && (
-                        <div className="text-red-400 text-sm p-3 bg-red-500/10 rounded-md border border-red-500/20">
-                            Connection error occurred.
+                    {(embedStatus === 'launching' || embedStatus === 'embedding' || embedStatus === 'auth') && (
+                        <div className="flex flex-col items-center gap-3">
+                            <div className="relative">
+                                <Loader2 className="w-8 h-8 text-accent animate-spin" />
+                                {embedStatus === 'auth' && (
+                                    <ShieldCheck className="w-4 h-4 text-green-400 absolute bottom-0 -right-1 bg-surface rounded-full" />
+                                )}
+                            </div>
+                            
+                            <div className="text-center space-y-1">
+                                <p className="text-accent font-medium">
+                                    {embedStatus === 'launching' && 'Spawning Client...'}
+                                    {embedStatus === 'embedding' && 'Negotiating Connection...'}
+                                    {embedStatus === 'auth' && 'Securing Connection...'}
+                                </p>
+                                <p className="text-text-muted text-xs">
+                                    {embedStatus === 'launching' && 'Initializing proxy wrapper'}
+                                    {embedStatus === 'embedding' && 'Exchanging certificates'}
+                                    {embedStatus === 'auth' && 'Validating credentials'}
+                                </p>
+                            </div>
                         </div>
                     )}
 
-                    {availability && !availability.available && (
-                        <div className="mt-4 text-yellow-500 text-sm p-3 bg-yellow-500/10 rounded-md text-left">
-                            <p className="font-semibold mb-1">System Requirement Missing</p>
-                            <p>No compatible RDP client was found on your system.</p>
+                    {embedStatus === 'external' && (
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-center gap-2 text-green-400">
+                                <Maximize2 className="w-4 h-4" />
+                                <p>RDP session running in external window.</p>
+                            </div>
+                            <p className="text-text-muted text-xs">
+                                Embedding unavailable. The session opened as a separate mstsc window.
+                            </p>
+                        </div>
+                    )}
+
+                    {embedStatus === 'disconnected' && (
+                        <div className="space-y-2">
+                            <p className="text-text-muted">The RDP session has ended.</p>
+                            {disconnectCode !== null && disconnectCode !== 0 && (
+                                <p className="text-text-muted text-xs">
+                                    Disconnect code: <span className="font-mono text-accent">{disconnectCode}</span>
+                                </p>
+                            )}
+                        </div>
+                    )}
+
+                    {embedStatus === 'error' && (
+                        <div className="text-red-400 text-sm p-3 bg-red-500/10 rounded-md border border-red-500/20 text-left">
+                            {errorMsg || 'An unexpected connection error occurred.'}
                         </div>
                     )}
                 </div>
 
+                {/* Actions */}
                 <div className="flex gap-3 justify-center">
-                    {(status === 'disconnected' || status === 'error') && availability?.available && (
+                    {(embedStatus === 'disconnected' || embedStatus === 'error') && (
                         <button
+                            id={`rdp-reconnect-${tab.id}`}
                             onClick={handleReconnect}
                             className="px-4 py-2 bg-accent text-white rounded-md font-medium hover:bg-accent/90 transition-colors inline-flex items-center gap-2"
                         >
-                            <RefreshCw className="w-4 h-4" /> Reconnect
+                            <RefreshCw className="w-4 h-4" />
+                            Reconnect
                         </button>
                     )}
                     <button
+                        id={`rdp-close-${tab.id}`}
                         onClick={() => closeTab(tab.id)}
-                        className="px-4 py-2 bg-surface border border-border rounded-md font-medium text-text-primary hover:bg-white/5 transition-colors"
+                        className="px-4 py-2 bg-surface border border-border rounded-md font-medium text-text-primary hover:bg-white/5 transition-colors inline-flex items-center gap-2"
                     >
+                        <X className="w-4 h-4" />
                         Close Tab
                     </button>
                 </div>
+
+                {/* Connection info row */}
+                {(embedStatus === 'launching' || embedStatus === 'embedding' || embedStatus === 'auth') && (
+                    <div className="mt-6 flex items-center justify-center gap-2 text-text-muted text-xs bg-black/20 py-2 px-4 rounded-full">
+                        <Wifi className="w-3 h-3 animate-pulse text-accent" />
+                        <span>Connecting to {tab.connectionName}</span>
+                    </div>
+                )}
             </div>
         </div>
     );

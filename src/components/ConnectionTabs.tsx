@@ -1,10 +1,13 @@
 import React from 'react';
 import { X, Terminal, Monitor, Loader2 } from 'lucide-react';
-import { useAppStore } from '../store/useAppStore';
+import { useTabStore } from '../store';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const ConnectionTabs: React.FC = () => {
-    const { tabs, activeTabId, setActiveTab, closeTab } = useAppStore();
+    const tabs = useTabStore(s => s.tabs);
+    const activeTabId = useTabStore(s => s.activeTabId);
+    const setActiveTab = useTabStore(s => s.setActiveTab);
+    const closeTab = useTabStore(s => s.closeTab);
 
     const handleMiddleClick = (e: React.MouseEvent, tabId: string) => {
         if (e.button === 1) { // Middle click button

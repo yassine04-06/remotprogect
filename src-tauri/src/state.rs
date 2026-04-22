@@ -1,6 +1,7 @@
 use std::sync::{Mutex, RwLock};
 use dashmap::DashMap;
 use std::process::Child;
+use crate::rdp::EmbeddedRdpSession;
 
 /// Sessione SSH attiva in memoria.
 pub struct SshSession {
@@ -33,14 +34,18 @@ pub struct AppState {
     /// Percorso del file di configurazione (salt + token).
     pub config_path: String,
 
-    /// Processi RDP/VNC attivi, indicizzati per session ID.
+    /// Directory dati dell'applicazione (per compilare helper etc.)
+    pub data_dir: String,
+
+    /// Processi RDP legacy (mstsc), indicizzati per session ID.
     pub rdp_processes: DashMap<String, Child>,
 
+    /// Sessioni RDP embeddate tramite C# helper, indicizzate per session ID.
+    pub rdp_sessions: DashMap<String, EmbeddedRdpSession>,
+
     /// Sessioni SSH attive, indicizzate per session ID.
-    /// FIX: spostate da OnceLock globale a stato Tauri per un ciclo di vita corretto.
     pub ssh_sessions: DashMap<String, SshSession>,
 
     /// Sessioni shell locale attive, indicizzate per session ID.
-    /// FIX: idem — fuori dai globali, dentro lo stato gestito.
     pub shell_sessions: DashMap<String, LocalShellSession>,
 }

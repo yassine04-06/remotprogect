@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAppStore } from '../store/useAppStore';
+import { useConnectionStore, useUIStore } from '../store';
 import type { Group } from '../types';
 import { motion } from 'framer-motion';
 import { X, FolderPlus, Loader2 } from 'lucide-react';
@@ -10,7 +10,9 @@ interface Props {
 }
 
 export const GroupDialog: React.FC<Props> = ({ editGroup, onClose }) => {
-    const { createGroup, updateGroup, addToast } = useAppStore();
+    const createGroup = useConnectionStore(s => s.createGroup);
+    const updateGroup = useConnectionStore(s => s.updateGroup);
+    const addToast = useUIStore(s => s.addToast);
     const [name, setName] = useState('');
     const [loading, setLoading] = useState(false);
 
