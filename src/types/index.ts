@@ -141,8 +141,8 @@ export interface VaultStatus {
 
 export interface RdpAvailability {
     available: boolean;
-    binary_path: string | null;
-    error: string | null;
+    binary: string;    // Matches Rust: pub binary: String
+    message: string;   // Matches Rust: pub message: String
 }
 
 export interface VncAvailability {

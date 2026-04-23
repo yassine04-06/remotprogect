@@ -12,10 +12,12 @@ import * as api from '../services/api';
 interface CredentialStore {
     credentialProfiles: CredentialProfile[];
     savedCommands: SavedCommand[];
+    loaded: boolean;
 
     // Actions
     setCredentialProfiles: (profiles: CredentialProfile[]) => void;
     setSavedCommands: (commands: SavedCommand[]) => void;
+    resetForLock: () => void;
 
     // API Actions
     fetchCredentialProfiles: () => Promise<void>;
@@ -31,26 +33,30 @@ interface CredentialStore {
     deleteSavedCommand: (id: string) => Promise<void>;
 }
 
-let loaded = false;
-
-export const useCredentialStore = create<CredentialStore>((set) => ({
+export const useCredentialStore = create<CredentialStore>((set, get) => ({
     credentialProfiles: [],
     savedCommands: [],
+    loaded: false,
 
     setCredentialProfiles: (credentialProfiles) => set({ credentialProfiles }),
     setSavedCommands: (savedCommands) => set({ savedCommands }),
 
+    resetForLock: () => set({
+        credentialProfiles: [],
+        savedCommands: [],
+        loaded: false,
+    }),
+
     fetchCredentialProfiles: async () => {
-        if (loaded) return;
-        loaded = true;
+        if (get().loaded) return;
         try {
             const [cmds, profiles] = await Promise.all([
                 api.getSavedCommands(),
                 api.getCredentialProfiles()
             ]);
-            set({ savedCommands: cmds, credentialProfiles: profiles });
+            set({ savedCommands: cmds, credentialProfiles: profiles, loaded: true });
         } catch (e) {
-            loaded = false;
+            // Don't set loaded on failure — allow retry
             throw e;
         }
     },

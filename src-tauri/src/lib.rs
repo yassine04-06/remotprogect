@@ -51,8 +51,9 @@ fn set_master_password(
     state: tauri::State<AppState>,
     request: SetMasterPasswordRequest,
 ) -> Result<(), crate::error::AppError> {
+    use zeroize::Zeroize;
     let salt = encryption::generate_salt();
-    let key = encryption::derive_key(&request.password, &salt);
+    let mut key = encryption::derive_key(&request.password, &salt);
     let token = encryption::create_verification_token(&key)?;
 
     let config = serde_json::json!({
@@ -65,6 +66,9 @@ fn set_master_password(
     *state.encryption_key.write().unwrap() = Some(key);
     *state.salt.write().unwrap() = Some(salt.to_vec());
     *state.verification_token.write().unwrap() = Some(token);
+
+    // Zeroize the local copy — the canonical copy lives in the RwLock now
+    key.zeroize();
 
     Ok(())
 }
@@ -84,22 +88,41 @@ fn unlock_vault(
         .as_ref()
         .ok_or("Vault non configurato — imposta prima una master password")?;
 
-    let key = encryption::derive_key(&request.password, salt);
+    use zeroize::Zeroize;
+    let mut key = encryption::derive_key(&request.password, salt);
 
     let token_guard = state.verification_token.read().unwrap();
     let token = token_guard.as_ref().ok_or("Token di verifica assente")?;
 
     if !encryption::verify_master_password(token, &key) {
+        key.zeroize(); // Zeroize even on failure
         return Err(crate::error::AppError::AuthFailed("Master password errata".to_string()));
     }
 
     *state.encryption_key.write().unwrap() = Some(key);
+    key.zeroize(); // Zeroize local copy
     Ok(())
 }
 
 #[tauri::command]
 fn lock_vault(state: tauri::State<AppState>) {
-    *state.encryption_key.write().unwrap() = None;
+    use zeroize::Zeroize;
+    let mut key_guard = state.encryption_key.write().unwrap();
+    // Explicitly zeroize the key material before dropping it
+    if let Some(ref mut key) = *key_guard {
+        key.zeroize();
+    }
+    *key_guard = None;
+
+    // Also kill all active sessions to prevent stale decrypted data
+    state.ssh_sessions.clear();
+    state.shell_sessions.clear();
+    // Kill RDP child processes before clearing
+    for mut entry in state.rdp_processes.iter_mut() {
+        let _ = entry.value_mut().kill();
+    }
+    state.rdp_processes.clear();
+    state.rdp_sessions.clear();
 }
 
 #[tauri::command]
@@ -319,22 +342,30 @@ fn ssh_connect(
     private_key_path: Option<String>,
     ssh_tunnels: Option<Vec<database::SshTunnel>>,
 ) -> Result<(), crate::error::AppError> {
-    if state.ssh_sessions.contains_key(&session_id) {
-        return Ok(()); // Sessione già attiva
+    // Atomic guard: try to reserve the slot. If it already exists, return early.
+    // This prevents two concurrent ssh_connect calls from both launching a process.
+    use dashmap::mapref::entry::Entry;
+    match state.ssh_sessions.entry(session_id.clone()) {
+        Entry::Occupied(_) => {
+            // Session already active — nothing to do
+            return Ok(());
+        }
+        Entry::Vacant(slot) => {
+            // Launch the SSH process while we hold the vacant entry
+            let session = ssh::ssh_connect(
+                &app,
+                &session_id,
+                &host,
+                port,
+                &username,
+                password.as_deref(),
+                private_key_path.as_deref(),
+                ssh_tunnels,
+            )?;
+            // Only insert if launch succeeded
+            slot.insert(session);
+        }
     }
-
-    let session = ssh::ssh_connect(
-        &app,
-        &session_id,
-        &host,
-        port,
-        &username,
-        password.as_deref(),
-        private_key_path.as_deref(),
-        ssh_tunnels,
-    )?;
-
-    state.ssh_sessions.insert(session_id, session);
     Ok(())
 }
 

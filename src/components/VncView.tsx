@@ -3,6 +3,7 @@ import { useConnectionStore, useTabStore, useUIStore } from '../store';
 import * as api from '../services/api';
 import type { Tab } from '../types';
 import { Monitor, RefreshCw } from 'lucide-react';
+import { useResolvedCredentials } from '../hooks/useResolvedCredentials';
 
 interface VncViewProps {
     tab: Tab;
@@ -16,6 +17,7 @@ export function VncView({ tab, isActive }: VncViewProps) {
     const addToast = useUIStore(s => s.addToast);
     const [status, setStatus] = useState(tab.status);
     const [availability, setAvailability] = useState<{ available: boolean; message: string } | null>(null);
+    const { resolve: resolveCreds } = useResolvedCredentials(tab.connectionId);
 
     useEffect(() => {
         let isMounted = true;
@@ -32,7 +34,8 @@ export function VncView({ tab, isActive }: VncViewProps) {
 
                         const conn = tab.connection || connections.find(c => c.id === tab.connectionId);
                         if (conn) {
-                            const creds = await api.resolveCredentials(conn.id);
+                            const creds = await resolveCreds();
+                            if (!creds) throw new Error('Failed to resolve credentials');
                             await api.vncConnect(
                                 tab.id,
                                 conn.host,
@@ -75,7 +78,8 @@ export function VncView({ tab, isActive }: VncViewProps) {
         const conn = tab.connection || connections.find(c => c.id === tab.connectionId);
         if (conn) {
             try {
-                const creds = await api.resolveCredentials(conn.id);
+                const creds = await resolveCreds();
+                if (!creds) throw new Error('Failed to resolve credentials');
                 await api.vncConnect(
                     tab.id,
                     conn.host,

@@ -5,6 +5,7 @@ import type { Tab, FileNode } from '../types';
 import { Folder, File, Upload, Download, Trash, RefreshCw, ChevronRight, CornerLeftUp, Loader2, FolderPlus, FolderOpen } from 'lucide-react';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { useResolvedCredentials } from '../hooks/useResolvedCredentials';
 
 interface FileManagerViewProps {
     tab: Tab;
@@ -23,6 +24,7 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
     const [menuPosition, setMenuPosition] = useState<{ x: number, y: number } | null>(null);
     const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
     const [isDraggingOver, setIsDraggingOver] = useState(false);
+    const { resolve: resolveCreds } = useResolvedCredentials(tab.connectionId);
 
     const isSftp = tab.protocol === 'SFTP';
 
@@ -35,7 +37,8 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
             const conn = connections.find(c => c.id === tab.connectionId);
             if (!conn) throw new Error("Connection not found");
 
-            const creds = await api.resolveCredentials(conn.id);
+            const creds = await resolveCreds();
+            if (!creds) throw new Error('Failed to resolve credentials');
             const username = creds.username || conn.username;
 
             let res;
@@ -127,7 +130,8 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
             const conn = connections.find(c => c.id === tab.connectionId);
             if (!conn) throw new Error("Connection not found");
 
-            const creds = await api.resolveCredentials(conn.id);
+            const creds = await resolveCreds();
+            if (!creds) throw new Error('Failed to resolve credentials');
             const username = creds.username || conn.username;
 
             // Extract filename from local path (naive cross-platform split)
@@ -179,7 +183,8 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
             const conn = connections.find(c => c.id === tab.connectionId);
             if (!conn) throw new Error("Connection not found");
 
-            const creds = await api.resolveCredentials(conn.id);
+            const creds = await resolveCreds();
+            if (!creds) throw new Error('Failed to resolve credentials');
             const username = creds.username || conn.username;
 
             addToast({ type: 'info', title: 'Download Started', description: `Downloading ${selectedFile.name}...` });
@@ -208,7 +213,8 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
             const conn = connections.find(c => c.id === tab.connectionId);
             if (!conn) throw new Error("Connection not found");
 
-            const creds = await api.resolveCredentials(conn.id);
+            const creds = await resolveCreds();
+            if (!creds) throw new Error('Failed to resolve credentials');
             const username = creds.username || conn.username;
 
             if (isSftp) {
@@ -235,7 +241,8 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
             const conn = connections.find(c => c.id === tab.connectionId);
             if (!conn) throw new Error("Connection not found");
 
-            const creds = await api.resolveCredentials(conn.id);
+            const creds = await resolveCreds();
+            if (!creds) throw new Error('Failed to resolve credentials');
             const username = creds.username || conn.username;
 
             const remotePath = `${currentPath === '/' ? '' : currentPath}/${name}`;

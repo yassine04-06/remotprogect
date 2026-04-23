@@ -4,6 +4,7 @@ import { Play, Square, RefreshCw, PowerOff, Loader2, RotateCcw, Server, Box, Ale
 import * as api from '../services/api';
 import type { ProxmoxResource, ProxmoxAuthResponse, ServerConnection } from '../types';
 import { useUIStore } from '../store';
+import { useResolvedCredentials } from '../hooks/useResolvedCredentials';
 
 interface Props {
     connection: ServerConnection;
@@ -16,18 +17,19 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
+    const { resolve: resolveCreds } = useResolvedCredentials(connection.id);
 
     // Auth & Init
     const initProxmox = useCallback(async () => {
         setIsLoading(true);
         setError(null);
         try {
-            const creds = await api.resolveCredentials(connection.id);
+            const creds = await resolveCreds();
+            if (!creds) throw new Error('Failed to resolve credentials');
             const auth = await api.proxmoxAuth(
                 connection.host,
                 connection.port,
                 creds.username || connection.username,
-                connection.password_encrypted ?? '',
                 creds.password_decrypted
             );
             setAuthData(auth);

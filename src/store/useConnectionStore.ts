@@ -9,6 +9,7 @@ interface ConnectionStore {
     searchQuery: string;
     editingConnection: ServerConnection | null;
     editingGroup: Group | null;
+    loaded: boolean;
     
     // Actions
     setConnections: (connections: ServerConnection[]) => void;
@@ -16,6 +17,7 @@ interface ConnectionStore {
     setSearchQuery: (q: string) => void;
     setEditingConnection: (connection: ServerConnection | null) => void;
     setEditingGroup: (group: Group | null) => void;
+    resetForLock: () => void;
 
     // API Actions
     fetchConnections: () => Promise<void>;
@@ -27,14 +29,13 @@ interface ConnectionStore {
     deleteGroup: (id: string) => Promise<void>;
 }
 
-let loaded = false;
-
-export const useConnectionStore = create<ConnectionStore>((set) => ({
+export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     connections: [],
     groups: [],
     searchQuery: '',
     editingConnection: null,
     editingGroup: null,
+    loaded: false,
 
     setConnections: (connections) => set({ connections }),
     setGroups: (groups) => set({ groups }),
@@ -42,18 +43,26 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
     setEditingConnection: (editingConnection) => set({ editingConnection }),
     setEditingGroup: (editingGroup) => set({ editingGroup }),
 
+    // Called when the vault is locked — resets state so re-unlock refetches fresh data
+    resetForLock: () => set({
+        connections: [],
+        groups: [],
+        loaded: false,
+        editingConnection: null,
+        editingGroup: null,
+    }),
+
     fetchConnections: async () => {
-        if (loaded) return;
-        loaded = true;
+        if (get().loaded) return;
         
         try {
             const [conns, grps] = await Promise.all([
                 api.getConnections(),
                 api.getGroups()
             ]);
-            set({ connections: conns, groups: grps });
+            set({ connections: conns, groups: grps, loaded: true });
         } catch (e) {
-            loaded = false; // allow retry if failed
+            // Don't set loaded=true on failure — allow retry
             throw e;
         }
     },

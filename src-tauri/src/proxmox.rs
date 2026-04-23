@@ -42,24 +42,14 @@ lazy_static::lazy_static! {
         .expect("Impossibile costruire HTTP Client");
 }
 
-/// FIX: la password arriva cifrata dal frontend e viene decifrata
-/// qui in Rust prima di usarla, esattamente come avviene per SSH.
-/// Il frontend deve passare `password_encrypted` (il valore cifrato
-/// salvato nel DB) invece della password in chiaro.
 #[tauri::command]
 pub async fn proxmox_auth(
-    state: tauri::State<'_, crate::state::AppState>,
     host: String,
     port: u16,
     username: String,
-    password_encrypted: String,
+    password: Option<String>,
 ) -> Result<ProxmoxAuthResponse, String> {
-    // Decifra la password usando la chiave del vault
-    let password = {
-        let key_guard = state.encryption_key.read().map_err(|_| "Lock error")?;
-        let key = key_guard.as_ref().ok_or("Vault bloccato — sblocca prima di connetterti")?;
-        crate::encryption::decrypt(&password_encrypted, key)?
-    };
+    let password = password.unwrap_or_default();
 
     let url = format!("https://{}:{}/api2/json/access/ticket", host, port);
 

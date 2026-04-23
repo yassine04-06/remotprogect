@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useConnectionStore, useTabStore, useUIStore, useCredentialStore } from '../store';
 import type { ServerConnection } from '../types';
+// @ts-expect-error - react-window types can be incompatible with bundler resolution
 import { FixedSizeList as List } from 'react-window';
+// @ts-expect-error - react-virtualized-auto-sizer types mismatch
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ExternalToolsMenu } from './ExternalToolsMenu';
@@ -286,13 +288,13 @@ export const ServerSidebar: React.FC = () => {
 
             <div className="flex-1 min-h-0 pl-2">
                 <AutoSizer>
-                    {({ height, width }) => (
+                    {({ height, width }: { height: number; width: number }) => (
                         <List
                             height={height}
                             width={width}
                             itemCount={visibleNodes.length}
                             itemSize={36}
-                            itemKey={(index) => visibleNodes[index].id}
+                            itemKey={(index: number) => visibleNodes[index].id}
                             className="custom-scrollbar"
                         >
                             {Row}

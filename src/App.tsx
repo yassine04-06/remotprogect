@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Settings, Shield, Globe, Terminal, KeyRound } from 'lucide-react';
-import { useUIStore, useTabStore, useConnectionStore, useGlobalDataInitializer } from './store';
+import { useUIStore, useTabStore, useConnectionStore, useCredentialStore, useGlobalDataInitializer } from './store';
 import * as api from './services/api';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { UnlockScreen } from './components/UnlockScreen';
@@ -109,6 +109,10 @@ function MainLayout() {
 
   const handleLock = async () => {
     await api.lockVault();
+    // Reset stores so re-unlock refetches fresh data (Fix #4)
+    useConnectionStore.getState().resetForLock();
+    useCredentialStore.getState().resetForLock();
+    useTabStore.getState().closeAllTabs();
     setVaultUnlocked(false);
     addToast({ type: 'info', title: 'Vault locked', description: 'Your session has been securely closed.' });
   };

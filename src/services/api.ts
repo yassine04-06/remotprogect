@@ -221,8 +221,8 @@ export const pingServer = (host: string, port: number) =>
 
 // ── Proxmox ──────────────────────────────────────────────
 
-export const proxmoxAuth = (host: string, port: number, username: string, password_encrypted: string, password?: string | null) =>
-    invoke<ProxmoxAuthResponse>('proxmox_auth', { host, port, username, passwordEncrypted: password_encrypted, password: password ?? null });
+export const proxmoxAuth = (host: string, port: number, username: string, password?: string | null) =>
+    invoke<ProxmoxAuthResponse>('proxmox_auth', { host, port, username, password: password ?? null });
 
 export const proxmoxGetResources = (host: string, port: number, ticket: string) =>
     invoke<ProxmoxResource[]>('proxmox_get_resources', { host, port, ticket });

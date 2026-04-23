@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Tab, TabStatus, ServerConnection } from '../types';
+import { eventBus } from './events';
 
 interface TabStore {
     tabs: Tab[];
@@ -14,12 +15,17 @@ interface TabStore {
     openTab: (connection: ServerConnection) => void;
     removeTab: (id: string) => void;
     closeTab: (id: string) => void;
+    closeAllTabs: () => void;
     updateTabStatus: (id: string, status: TabStatus) => void;
 }
 
+// Track whether the eventBus listener has been registered to prevent duplicates
+let eventListenerRegistered = false;
+
 export const useTabStore = create<TabStore>((set, get) => {
-    // Listen for deleted connections and close associated tabs
-    import('./events').then(({ eventBus }) => {
+    // Register event listener exactly once, synchronously, with a guard
+    if (!eventListenerRegistered) {
+        eventListenerRegistered = true;
         eventBus.on('connection_deleted', (id: string) => {
             const tabs = get().tabs;
             const tabToClose = tabs.find(t => t.connectionId === id);
@@ -27,7 +33,7 @@ export const useTabStore = create<TabStore>((set, get) => {
                 get().closeTab(tabToClose.id);
             }
         });
-    });
+    }
 
     return {
         tabs: [],
@@ -75,6 +81,8 @@ export const useTabStore = create<TabStore>((set, get) => {
     }),
 
     closeTab: (id) => get().removeTab(id),
+
+    closeAllTabs: () => set({ tabs: [], activeTabId: null }),
 
     updateTabStatus: (id, status) => set((state) => ({
         tabs: state.tabs.map(t => t.id === id ? { ...t, status } : t)

@@ -10,7 +10,7 @@ import { useConnectionStore, useTabStore, useUIStore } from '../store';
 import * as api from '../services/api';
 import type { Tab, SshStatusEvent, SshDataEvent } from '../types';
 import { RefreshCw, TerminalSquare } from 'lucide-react';
-
+import { useResolvedCredentials } from '../hooks/useResolvedCredentials';
 
 interface TerminalViewProps {
     tab: Tab;
@@ -27,6 +27,7 @@ export function TerminalView({ tab, isActive }: TerminalViewProps) {
     const setShowCommandPalette = useUIStore(s => s.setShowCommandPalette);
     const appTheme = useUIStore(s => s.theme);
     const [sessionState, setSessionState] = useState(tab.status);
+    const { resolve: resolveCreds } = useResolvedCredentials(tab.connectionId);
 
     const [menuPosition, setMenuPosition] = useState<{ x: number, y: number } | null>(null);
 
@@ -170,7 +171,9 @@ export function TerminalView({ tab, isActive }: TerminalViewProps) {
             const conn = connections.find(c => c.id === tab.connectionId) || tab.connection;
             if (conn) {
                 try {
-                    const creds = await api.resolveCredentials(conn.id);
+                    const creds = await resolveCreds();
+                    if (!creds) throw new Error("Failed to resolve credentials");
+                    
                     await api.sshConnect(
                         tab.id, 
                         conn.host, 
@@ -221,7 +224,9 @@ export function TerminalView({ tab, isActive }: TerminalViewProps) {
         const conn = connections.find(c => c.id === tab.connectionId);
         if (conn) {
             try {
-                const creds = await api.resolveCredentials(conn.id);
+                const creds = await resolveCreds();
+                if (!creds) throw new Error("Failed to resolve credentials");
+                
                 await api.sshConnect(
                     tab.id, 
                     conn.host, 

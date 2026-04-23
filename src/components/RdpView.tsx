@@ -6,6 +6,7 @@ import * as api from '../services/api';
 import type { Tab } from '../types';
 import { Monitor, RefreshCw, Loader2, Maximize2, X, Wifi, WifiOff, ShieldCheck } from 'lucide-react';
 import { RdpToolbar } from './RdpToolbar';
+import { useResolvedCredentials } from '../hooks/useResolvedCredentials';
 
 interface RdpViewProps {
     tab: Tab;
@@ -31,6 +32,7 @@ export function RdpView({ tab, isActive }: RdpViewProps) {
     const [errorMsg, setErrorMsg] = useState('');
     const [disconnectCode, setDisconnectCode] = useState<number | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const { resolve: resolveCreds } = useResolvedCredentials(tab.connectionId);
 
     // Track whether the session is currently embedded (for resize logic)
     const isEmbeddedRef = useRef(false);
@@ -60,7 +62,13 @@ export function RdpView({ tab, isActive }: RdpViewProps) {
                 return;
             }
 
-            const creds = await api.resolveCredentials(conn.id);
+            const creds = await resolveCreds();
+            if (!creds) {
+                setEmbedStatus('error');
+                setErrorMsg('Failed to resolve credentials.');
+                updateTabStatus(tab.id, 'error');
+                return;
+            }
 
             setEmbedStatus('embedding');
 
