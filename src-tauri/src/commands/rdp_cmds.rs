@@ -147,7 +147,7 @@ pub fn rdp_connect(
     let port = connection.port;
     let nla = connection.rdp_nla;
 
-    let key_guard = state.encryption_key.read().map_err(|e| lock_err(e))?;
+    let key_guard = state.encryption_key.read().map_err(lock_err)?;
     let master_key = key_guard.as_ref().ok_or("Vault locked")?;
     let creds = resolve_credentials_internal(&conn, master_key, &connection_id)?;
     drop(key_guard);

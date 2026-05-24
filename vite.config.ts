@@ -16,6 +16,8 @@ export default defineConfig(async () => ({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
+    // Exclude Playwright e2e specs — they use a different test runner
+    exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**'],
     coverage: {
       provider: 'v8',
       include: ['src/utils/**', 'src/hooks/**', 'src/services/api.ts'],
