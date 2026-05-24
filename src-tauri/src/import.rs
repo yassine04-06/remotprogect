@@ -218,7 +218,9 @@ fn parse_rdp_content(content: &str, default_name: &str) -> ImportedConnection {
                 } else {
                     conn.host = value.to_string();
                 }
-                if conn.name == default_name || conn.name.is_empty() {
+                // Only fall back to host as name when no custom name was provided
+                // (i.e. the caller passed the host itself as the default, or name is empty).
+                if conn.name.is_empty() || conn.name == conn.host {
                     conn.name = conn.host.clone();
                 }
             }
@@ -228,10 +230,8 @@ fn parse_rdp_content(content: &str, default_name: &str) -> ImportedConnection {
             "username" if type_char == "s" => {
                 conn.username = value.to_string();
             }
-            "domain" if type_char == "s" => {
-                if !value.is_empty() {
-                    conn.domain = Some(value.to_string());
-                }
+            "domain" if type_char == "s" && !value.is_empty() => {
+                conn.domain = Some(value.to_string());
             }
             "desktopwidth" if type_char == "i" => {
                 conn.rdp_width = value.parse().ok();
@@ -598,16 +598,14 @@ fn parse_mremoteng_xml(content: &str, password: &str) -> Result<Vec<ImportedConn
                 let qname = e.name();
                 let local = qname.local_name();
                 let tag = std::str::from_utf8(local.as_ref()).unwrap_or("");
-                if tag == "Node" {
-                    if xml_attr(e, "Type").as_deref() == Some("Connection") {
-                        if let Some(conn) =
-                            mremoteng_node_to_conn(e, &container_stack, password, kdf_iterations)
-                        {
-                            connections.push(conn);
-                        }
+                if tag == "Node" && xml_attr(e, "Type").as_deref() == Some("Connection") {
+                    if let Some(conn) =
+                        mremoteng_node_to_conn(e, &container_stack, password, kdf_iterations)
+                    {
+                        connections.push(conn);
                     }
-                    // Empty Container (no children) → nothing to push
                 }
+                // Empty Container (no children) → nothing to push
             }
 
             Ok(Event::End(ref e)) => {
@@ -719,13 +717,11 @@ fn parse_rdm_xml(content: &str) -> Result<Vec<ImportedConnection>, String> {
                     current_field = Some(tag);
                 }
             }
-            Ok(Event::Text(ref e)) => {
-                if in_conn {
-                    if let (Some(ref field), Ok(text)) = (&current_field, e.unescape()) {
-                        let trimmed = text.trim().to_string();
-                        if !trimmed.is_empty() {
-                            fields.insert(field.clone(), trimmed);
-                        }
+            Ok(Event::Text(ref e)) if in_conn => {
+                if let (Some(ref field), Ok(text)) = (&current_field, e.unescape()) {
+                    let trimmed = text.trim().to_string();
+                    if !trimmed.is_empty() {
+                        fields.insert(field.clone(), trimmed);
                     }
                 }
             }
@@ -1120,7 +1116,7 @@ pub async fn bulk_import_connections(
         // Resolve or create group hierarchy
         let group_id = if let Some(path) = &import.group_path {
             if !path.is_empty() {
-                Some(find_or_create_group_path(&*db, path)?)
+                Some(find_or_create_group_path(&db, path)?)
             } else {
                 None
             }
@@ -1183,7 +1179,7 @@ pub async fn bulk_import_connections(
             proxmox_api_token_secret_encrypted: None,
         };
 
-        crate::database::connections::create_connection(&*db, request)
+        crate::database::connections::create_connection(&db, request)
             .map_err(|e| format!("Failed to create '{}': {}", import.name, e))?;
 
         count += 1;

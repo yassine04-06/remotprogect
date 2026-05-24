@@ -552,8 +552,8 @@ fn test_schema_version_is_correct() {
         )
         .expect("could not query schema_version");
 
-    // Current schema is v11 per database.rs CURRENT_SCHEMA_VERSION
-    assert_eq!(version, 11, "schema version should be 11 after migrations");
+    // Current schema version — keep in sync with CURRENT_SCHEMA_VERSION in migrations.rs
+    assert_eq!(version, 13, "schema version should be 13 after migrations");
 }
 
 #[test]
