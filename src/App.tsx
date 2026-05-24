@@ -286,7 +286,9 @@ function MainLayout() {
             if (tabs.length === 0) return;
 
             // Ctrl+Shift+I → open import dialog
-            if (e.ctrlKey && e.shiftKey && e.key === 'i') {
+            // NB: with Shift held, e.key is 'I' (uppercase) on most layouts —
+            // compare case-insensitively so the shortcut fires regardless.
+            if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'i') {
                 e.preventDefault();
                 useUIStore.getState().setShowImportDialog(true);
                 return;

@@ -125,10 +125,15 @@ export const LOCKED_VAULT_RESPONSES: MockResponses = {
 export const UNLOCKED_VAULT_RESPONSES: MockResponses = {
     is_vault_unlocked: { unlocked: true },
     is_first_run: false,
+    // useConnectionStore.fetchConnections calls api.getConnections() → get_connections
+    // (NOT get_connections_summary — that's a separate, unused API).
+    get_connections: [SSH_CONNECTION],
     get_connections_summary: [SSH_SUMMARY],
     get_groups: [],
     get_saved_commands: [],
     audit_log_list: [],
+    // ssh keys: real command is ssh_key_list (NOT get_ssh_keys).
+    ssh_key_list: [],
     get_ssh_keys: [],
     get_credential_profiles: [],
 };
@@ -136,10 +141,12 @@ export const UNLOCKED_VAULT_RESPONSES: MockResponses = {
 /** Successful unlock response (resolves to null = no return value). */
 export const UNLOCK_SUCCESS: MockResponses = {
     unlock_vault: null,
+    get_connections: [SSH_CONNECTION],
     get_connections_summary: [SSH_SUMMARY],
     get_groups: [],
     get_saved_commands: [],
     audit_log_list: [],
+    ssh_key_list: [],
     get_ssh_keys: [],
     get_credential_profiles: [],
 };
