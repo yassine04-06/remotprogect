@@ -242,7 +242,7 @@ fn unchunk_bytes(data: &[u8]) -> Vec<u8> {
             .trim_end_matches('\r')
             .to_string();
         let chunk_size =
-            usize::from_str_radix(&size_line.split(';').next().unwrap_or("0"), 16).unwrap_or(0);
+            usize::from_str_radix(size_line.split(';').next().unwrap_or("0"), 16).unwrap_or(0);
         pos += lf + 1;
         if chunk_size == 0 {
             break;

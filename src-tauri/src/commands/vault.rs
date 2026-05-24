@@ -38,7 +38,6 @@ fn save_lockout_count(data_dir: &str, count: u32) {
     if let Ok(json) = serde_json::to_string(&state) {
         if let Err(e) = std::fs::write(&path, json) {
             tracing::warn!("Failed to persist lockout state to {:?}: {}", path, e);
-            return;
         }
         #[cfg(unix)]
         {
@@ -153,7 +152,7 @@ pub fn set_master_password(
 
     // ── Guard: prevent destructive re-init of an already-configured vault ──
     {
-        let token_guard = state.verification_token.read().map_err(|e| lock_err(e))?;
+        let token_guard = state.verification_token.read().map_err(lock_err)?;
         if token_guard.is_some() {
             tracing::warn!("set_master_password rejected: vault already initialized");
             return Err(crate::error::AppError::Validation(
@@ -176,7 +175,7 @@ pub fn set_master_password(
     let token = encryption::create_verification_token(&key)?;
 
     let config = serde_json::json!({
-        "salt": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &salt),
+        "salt": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, salt),
         "verification_token": token,
         "kdf": {
             "algorithm": "pbkdf2-hmac-sha256",
@@ -188,10 +187,10 @@ pub fn set_master_password(
     write_config_atomic(&state.config_path, &config)?;
     restrict_config_perms(&state.config_path);
 
-    *state.encryption_key.write().map_err(|e| lock_err(e))? = Some(key);
-    *state.salt.write().map_err(|e| lock_err(e))? = Some(salt.to_vec());
-    *state.verification_token.write().map_err(|e| lock_err(e))? = Some(token);
-    *state.kdf_iterations.write().map_err(|e| lock_err(e))? = encryption::DEFAULT_KDF_ITERATIONS;
+    *state.encryption_key.write().map_err(lock_err)? = Some(key);
+    *state.salt.write().map_err(lock_err)? = Some(salt.to_vec());
+    *state.verification_token.write().map_err(lock_err)? = Some(token);
+    *state.kdf_iterations.write().map_err(lock_err)? = encryption::DEFAULT_KDF_ITERATIONS;
 
     tracing::info!(
         "Master password set (first run, {} PBKDF2 iterations)",
@@ -227,7 +226,7 @@ pub fn change_master_password(
     // the already-new-key ciphertext — producing permanently unreadable blobs.
     // The lock is held for the entire duration: DB re-encrypt + config.json
     // write + RAM key swap.
-    let _rekey_guard = state.rekey_lock.lock().map_err(|e| lock_err(e))?;
+    let _rekey_guard = state.rekey_lock.lock().map_err(lock_err)?;
 
     use secrecy::ExposeSecret;
     use zeroize::Zeroize;
@@ -236,14 +235,14 @@ pub fn change_master_password(
     let secret_new = secrecy::SecretString::new(request.new_password);
 
     let salt = {
-        let salt_guard = state.salt.read().map_err(|e| lock_err(e))?;
+        let salt_guard = state.salt.read().map_err(lock_err)?;
         salt_guard.as_ref().ok_or("Vault not configured")?.clone()
     };
     let token = {
-        let token_guard = state.verification_token.read().map_err(|e| lock_err(e))?;
+        let token_guard = state.verification_token.read().map_err(lock_err)?;
         token_guard.as_ref().ok_or("Vault not initialized")?.clone()
     };
-    let old_iters = *state.kdf_iterations.read().map_err(|e| lock_err(e))?;
+    let old_iters = *state.kdf_iterations.read().map_err(lock_err)?;
 
     let mut old_key = encryption::derive_key(secret_old.expose_secret(), &salt, old_iters);
     if !encryption::verify_master_password(&token, &old_key) {
@@ -348,7 +347,7 @@ pub fn change_master_password(
     }
 
     let config = serde_json::json!({
-        "salt": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &new_salt),
+        "salt": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, new_salt),
         "verification_token": new_token,
         "kdf": {
             "algorithm": "pbkdf2-hmac-sha256",
@@ -371,10 +370,10 @@ pub fn change_master_password(
     })?;
     restrict_config_perms(&state.config_path);
 
-    *state.encryption_key.write().map_err(|e| lock_err(e))? = Some(new_key);
-    *state.salt.write().map_err(|e| lock_err(e))? = Some(new_salt.to_vec());
-    *state.verification_token.write().map_err(|e| lock_err(e))? = Some(new_token);
-    *state.kdf_iterations.write().map_err(|e| lock_err(e))? = encryption::DEFAULT_KDF_ITERATIONS;
+    *state.encryption_key.write().map_err(lock_err)? = Some(new_key);
+    *state.salt.write().map_err(lock_err)? = Some(new_salt.to_vec());
+    *state.verification_token.write().map_err(lock_err)? = Some(new_token);
+    *state.kdf_iterations.write().map_err(lock_err)? = encryption::DEFAULT_KDF_ITERATIONS;
 
     tracing::info!(
         "Master password changed (re-keyed to {} PBKDF2 iterations)",
@@ -421,7 +420,7 @@ pub fn unlock_vault(
     // Holding the mutex through PBKDF2 (~200 ms) is acceptable on a single-user
     // desktop application — concurrent unlock calls are essentially impossible
     // in normal usage.
-    let _unlock_guard = state.unlock_mutex.lock().map_err(|e| lock_err(e))?;
+    let _unlock_guard = state.unlock_mutex.lock().map_err(lock_err)?;
 
     let now = current_unix_secs();
     let lockout_until = state.unlock_lockout_until.load(Ordering::Relaxed);
@@ -433,19 +432,19 @@ pub fn unlock_vault(
     }
 
     let salt = {
-        let salt_guard = state.salt.read().map_err(|e| lock_err(e))?;
+        let salt_guard = state.salt.read().map_err(lock_err)?;
         salt_guard
             .as_ref()
             .ok_or("Vault not configured — set a master password first")?
             .clone()
     };
 
-    let iterations = *state.kdf_iterations.read().map_err(|e| lock_err(e))?;
+    let iterations = *state.kdf_iterations.read().map_err(lock_err)?;
     let secret_pwd = secrecy::SecretString::new(request.password);
     let mut key = encryption::derive_key(secret_pwd.expose_secret(), &salt, iterations);
 
     let token = {
-        let token_guard = state.verification_token.read().map_err(|e| lock_err(e))?;
+        let token_guard = state.verification_token.read().map_err(lock_err)?;
         token_guard
             .as_ref()
             .ok_or("Verification token missing")?
@@ -488,7 +487,7 @@ pub fn unlock_vault(
     state.unlock_lockout_until.store(0, Ordering::Relaxed);
     touch_activity(&state);
 
-    *state.encryption_key.write().map_err(|e| lock_err(e))? = Some(key);
+    *state.encryption_key.write().map_err(lock_err)? = Some(key);
     key.zeroize();
     {
         let db = state.db.get().map_err(|e| format!("DB pool: {}", e))?;
@@ -564,7 +563,7 @@ pub fn set_auto_lock_timeout(
     state: tauri::State<AppState>,
     secs: u64,
 ) -> Result<(), crate::error::AppError> {
-    *state.auto_lock_secs.write().map_err(|e| lock_err(e))? = secs;
+    *state.auto_lock_secs.write().map_err(lock_err)? = secs;
 
     // MED-A1: persist the setting so it survives a restart.
     // We merge it into the existing config.json (keeping salt, token, kdf intact).

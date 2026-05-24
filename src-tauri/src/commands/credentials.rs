@@ -20,7 +20,7 @@ pub fn create_credential_profile(
     mut request: CreateCredentialProfileRequest,
 ) -> Result<CredentialProfile, crate::error::AppError> {
     {
-        let key_guard = state.encryption_key.read().map_err(|e| lock_err(e))?;
+        let key_guard = state.encryption_key.read().map_err(lock_err)?;
         let key = key_guard.as_ref().ok_or("Vault locked")?;
         if let Some(pt) = request.password_plaintext.take() {
             if !pt.is_empty() {
@@ -57,7 +57,7 @@ pub fn update_credential_profile(
     mut request: UpdateCredentialProfileRequest,
 ) -> Result<(), crate::error::AppError> {
     {
-        let key_guard = state.encryption_key.read().map_err(|e| lock_err(e))?;
+        let key_guard = state.encryption_key.read().map_err(lock_err)?;
         let key = key_guard.as_ref().ok_or("Vault locked")?;
         if let Some(pt) = request.password_plaintext.take() {
             if !pt.is_empty() {

@@ -32,7 +32,7 @@ pub fn ssh_key_create(
     request: SshKeyCreateRequest,
 ) -> Result<database::SshKey, crate::error::AppError> {
     let encrypted = if let Some(pt) = request.private_key_plaintext.filter(|s| !s.is_empty()) {
-        let key_guard = state.encryption_key.read().map_err(|e| lock_err(e))?;
+        let key_guard = state.encryption_key.read().map_err(lock_err)?;
         let key = key_guard.as_ref().ok_or("Vault locked")?;
         encryption::encrypt_v2(&pt, key)?
     } else {

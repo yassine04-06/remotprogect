@@ -300,6 +300,7 @@ pub async fn import_putty_sessions() -> Result<Vec<ImportedConnection>, String> 
 }
 
 /// Percent-decode a PuTTY session name (registry key names are %-encoded).
+#[allow(dead_code)] // used by Windows-only scan_putty_registry; keep for tests
 fn putty_url_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = String::with_capacity(s.len());

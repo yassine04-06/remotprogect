@@ -126,7 +126,7 @@ pub(crate) fn encrypt_connection_create_fields(
     state: &tauri::State<AppState>,
     request: &mut CreateConnectionRequest,
 ) -> Result<(), crate::error::AppError> {
-    let key_guard = state.encryption_key.read().map_err(|e| lock_err(e))?;
+    let key_guard = state.encryption_key.read().map_err(lock_err)?;
     let key = key_guard.as_ref().ok_or("Vault locked")?;
     if let Some(pt) = request.password_plaintext.take() {
         if !pt.is_empty() {
@@ -146,7 +146,7 @@ pub(crate) fn encrypt_connection_update_fields(
     state: &tauri::State<AppState>,
     request: &mut UpdateConnectionRequest,
 ) -> Result<(), crate::error::AppError> {
-    let key_guard = state.encryption_key.read().map_err(|e| lock_err(e))?;
+    let key_guard = state.encryption_key.read().map_err(lock_err)?;
     let key = key_guard.as_ref().ok_or("Vault locked")?;
     if let Some(pt) = request.password_plaintext.take() {
         if !pt.is_empty() {
@@ -196,13 +196,13 @@ fn scrub_sentry_event(event: &mut sentry::protocol::Event<'static>) {
 
     // Scrub event-level message
     if let Some(ref mut msg) = event.message {
-        *msg = scrub(msg).into();
+        *msg = scrub(msg);
     }
 
     // Scrub exception values
     for exc in &mut event.exception.values {
         if let Some(ref mut val) = exc.value {
-            *val = scrub(val).into();
+            *val = scrub(val);
         }
     }
 
@@ -276,7 +276,7 @@ pub fn run() {
         );
         let _ = rfd::MessageDialog::new()
             .set_title("NexoRC — Fatal Error")
-            .set_description(&format!(
+            .set_description(format!(
                 "Failed to create data directory:\n{}\n\nPath: {}",
                 e,
                 data_dir.display()

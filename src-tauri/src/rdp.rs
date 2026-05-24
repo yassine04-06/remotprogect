@@ -1,7 +1,10 @@
 use serde::Serialize;
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, Command, Stdio};
+#[cfg(target_os = "windows")]
+use std::process::Stdio;
+use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
+#[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 use ts_rs::TS;
@@ -399,7 +402,7 @@ pub fn launch_rdp_mstsc(
     audio: bool,
     printers: bool,
     drives: bool,
-    nla: bool,
+    _nla: bool,
 ) -> Result<Child, String> {
     #[cfg(target_os = "windows")]
     {
@@ -427,7 +430,7 @@ pub fn launch_rdp_mstsc(
             if drives { 1 } else { 0 },
             if printers { 1 } else { 0 },
             if audio { 0 } else { 2 },
-            if nla { 2 } else { 0 },
+            if _nla { 2 } else { 0 },
         );
 
         let temp_dir = std::env::temp_dir();

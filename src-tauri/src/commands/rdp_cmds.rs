@@ -119,6 +119,7 @@ pub fn rdp_connect(
 
 /// CRIT-A4: non-Windows variant — same credential isolation.
 #[cfg(not(target_os = "windows"))]
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn rdp_connect(
     state: tauri::State<AppState>,

@@ -50,7 +50,7 @@ pub fn check_vnc_availability() -> VncAvailability {
 
 #[cfg(not(target_os = "windows"))]
 pub fn check_vnc_availability() -> VncAvailability {
-    if let Ok(_) = Command::new("which").arg("vncviewer").output() {
+    if Command::new("which").arg("vncviewer").output().is_ok() {
         return VncAvailability {
             available: true,
             binary_path: Some("vncviewer".into()),

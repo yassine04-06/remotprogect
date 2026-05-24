@@ -39,7 +39,7 @@ pub async fn ssh_connect(
 
     // ── Resolve target credentials ─────────────────────────────────────────────
     let master_key: [u8; 32] = {
-        let g = state.encryption_key.read().map_err(|e| lock_err(e))?;
+        let g = state.encryption_key.read().map_err(lock_err)?;
         *g.as_ref().ok_or("Vault locked")?
     };
     let creds = resolve_credentials_internal(&db, &master_key, &connection_id)?;
