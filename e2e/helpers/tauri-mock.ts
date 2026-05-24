@@ -3,10 +3,16 @@
  *
  * Strategy
  * ─────────
- * Tauri v2's `@tauri-apps/api/core` `invoke()` delegates to
- * `window.__TAURI_INTERNALS__.invoke / transformCallback` at runtime.
- * By injecting a mock object via `page.addInitScript()` BEFORE the React
- * app boots, every IPC call is intercepted without any Tauri binary.
+ * Tauri v2's `@tauri-apps/api/core` `invoke()` calls
+ * `window.__TAURI_INTERNALS__.invoke(cmd, args, options)` and awaits the
+ * returned Promise.  By injecting a compatible mock object via
+ * `page.addInitScript()` BEFORE the React app boots, every IPC call is
+ * intercepted without any Tauri binary.
+ *
+ * IMPORTANT: Tauri v2 changed the IPC contract.  `__TAURI_INTERNALS__.invoke`
+ * must now be an async function that RETURNS a Promise — the old v1 approach
+ * of passing callback/error integer IDs in the payload is no longer used by
+ * `@tauri-apps/api/core`.
  *
  * Mock responses are stored in `window.__E2E_MOCK_RESPONSES__` (plain JSON
  * object) so tests can update them mid-scenario via `page.evaluate()`.
@@ -36,54 +42,67 @@ const MOCK_SCRIPT = /* javascript */ `
     // Response registry — tests update this with page.evaluate().
     window.__E2E_MOCK_RESPONSES__ = {};
 
-    let _nextId = 1;
-    const _handlers = {};
+    // transformCallback is required by @tauri-apps/api/core's Channel class
+    // (used for streaming IPC).  We implement it the same way as the official
+    // Tauri mockIPC helper so Channel objects work correctly if any component
+    // uses them.
+    var _callbacks = new Map();
+
+    function transformCallback(handler, once) {
+        var id = window.crypto.getRandomValues(new Uint32Array(1))[0];
+        _callbacks.set(id, function(data) {
+            if (once) _callbacks.delete(id);
+            if (typeof handler === 'function') handler(data);
+        });
+        return id;
+    }
+
+    function unregisterCallback(id) {
+        _callbacks.delete(id);
+    }
+
+    function runCallback(id, data) {
+        var cb = _callbacks.get(id);
+        if (cb) cb(data);
+    }
+
+    // Tauri v2: __TAURI_INTERNALS__.invoke must be async and RETURN a Promise.
+    // @tauri-apps/api/core does: return window.__TAURI_INTERNALS__.invoke(cmd, args, options)
+    // and awaits the result — it no longer passes callback/error IDs in args.
+    async function invoke(cmd, _args, _options) {
+        // Silently absorb plugin event commands (listen/emit/unlisten) so
+        // components that call listen() from @tauri-apps/api/event don't throw.
+        if (typeof cmd === 'string' && cmd.startsWith('plugin:')) {
+            return null;
+        }
+
+        var responses = window.__E2E_MOCK_RESPONSES__;
+        if (!(cmd in responses)) {
+            console.warn('[E2E mock] unhandled Tauri command: ' + cmd);
+            return null;
+        }
+
+        var mock = responses[cmd];
+        if (mock !== null && typeof mock === 'object' && '__error' in mock) {
+            throw mock.__error;
+        }
+        return mock;
+    }
+
+    // Initialise the event-plugin internals object expected by @tauri-apps/api/event.
+    window.__TAURI_EVENT_PLUGIN_INTERNALS__ =
+        window.__TAURI_EVENT_PLUGIN_INTERNALS__ || {};
 
     window.__TAURI_INTERNALS__ = {
-        metadata: { currentWindow: { label: 'main' } },
-
-        // Called by @tauri-apps/api/core to register promise callbacks.
-        transformCallback: function(handler, once) {
-            const id = _nextId++;
-            if (typeof handler === 'function') {
-                _handlers[id] = once
-                    ? function(resp) { delete _handlers[id]; handler(resp); }
-                    : handler;
-            }
-            return id;
+        metadata: {
+            currentWindow: { label: 'main' },
+            currentWebview: { windowLabel: 'main', label: 'main' },
         },
-
-        // Called by invoke() with { callback, error, ...args }.
-        invoke: function(cmd, payload) {
-            const callback = payload && payload.callback;
-            const error    = payload && payload.error;
-
-            const resolve = function(result) {
-                const cb = _handlers[callback];
-                if (cb) cb(result);
-            };
-            const reject = function(err) {
-                const eb = _handlers[error];
-                if (eb) eb(err);
-            };
-
-            const responses = window.__E2E_MOCK_RESPONSES__;
-            if (!(cmd in responses)) {
-                console.warn('[E2E mock] unhandled Tauri command: ' + cmd);
-                setTimeout(function() { resolve(null); }, 0);
-                return;
-            }
-
-            const mock = responses[cmd];
-            setTimeout(function() {
-                if (mock !== null && typeof mock === 'object' && '__error' in mock) {
-                    reject(mock.__error);
-                } else {
-                    resolve(mock);
-                }
-            }, 0);
-        },
-
+        invoke: invoke,
+        transformCallback: transformCallback,
+        unregisterCallback: unregisterCallback,
+        runCallback: runCallback,
+        callbacks: _callbacks,
         convertFileSrc: function(src) { return src; },
     };
 })();
