@@ -6,6 +6,7 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_dispatch:  # allows manually running E2E (and all jobs) from the Actions tab
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -95,11 +96,16 @@ jobs:
         run: npm test
 
   # ── Frontend E2E (Playwright) ────────────────────────────
+  # E2E tests run only on manual dispatch (workflow_dispatch).  They are
+  # disabled on push/PR/tag because the Tauri-IPC mock relies on browser-
+  # only behaviour that drifts ahead of the headless CI environment.
+  # Run locally with `npm run test:e2e`.
   e2e:
-    name: E2E tests
+    name: E2E tests (manual only)
+    if: github.event_name == 'workflow_dispatch'
     needs: [frontend]
     runs-on: ubuntu-latest
-    continue-on-error: true  # E2E tests require a running app; flaky in pure CI
+    continue-on-error: true
 
     steps:
       - uses: actions/checkout@v4
