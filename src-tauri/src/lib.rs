@@ -1,34 +1,35 @@
-mod error;
+pub mod commands;
 pub mod database;
+pub mod docker;
 mod encryption;
+mod error;
+pub mod import;
 mod known_hosts;
 mod local_shell;
-mod log_writer;   // HIGH-A6: PII-scrubbing size+daily rotating log writer
+mod log_writer; // HIGH-A6: PII-scrubbing size+daily rotating log writer
+pub mod network;
+pub mod proxmox;
 pub mod rdp;
+pub mod sftp_ftp;
 pub mod ssh;
 mod state;
+pub mod tools;
 pub mod vnc;
 mod vnc_client;
-pub mod tools;
-pub mod network;
-pub mod sftp_ftp;
-pub mod proxmox;
-pub mod docker;
-pub mod import;
-pub mod commands;
 
 /// Helpers exposed only for integration tests in tests/*.rs.
 #[doc(hidden)]
 pub mod test_helpers {
-    use rusqlite::Connection;
     use crate::database::CreateConnectionRequest;
+    use rusqlite::Connection;
 
     // L-3 SAFETY: this is a `#[doc(hidden)] pub mod test_helpers` — invoked
     // only from integration tests in `src-tauri/tests/`. Panicking here aborts
     // the failing test (the desired behaviour), it is never reachable from a
     // Tauri command.
     pub fn run_migrations_test(conn: &Connection) {
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;").unwrap();
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
+            .unwrap();
         crate::database::run_migrations_pub(conn).expect("migrations failed");
     }
 
@@ -249,10 +250,12 @@ pub fn run() {
                     dsn,
                     sentry::ClientOptions {
                         release: sentry::release_name!(),
-                        before_send: Some(std::sync::Arc::new(|mut event: sentry::protocol::Event<'static>| {
-                            scrub_sentry_event(&mut event);
-                            Some(event)
-                        })),
+                        before_send: Some(std::sync::Arc::new(
+                            |mut event: sentry::protocol::Event<'static>| {
+                                scrub_sentry_event(&mut event);
+                                Some(event)
+                            },
+                        )),
                         ..Default::default()
                     },
                 ))
@@ -266,7 +269,11 @@ pub fn run() {
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("nexorc");
     if let Err(e) = std::fs::create_dir_all(&data_dir) {
-        eprintln!("FATAL: cannot create data dir {}: {}", data_dir.display(), e);
+        eprintln!(
+            "FATAL: cannot create data dir {}: {}",
+            data_dir.display(),
+            e
+        );
         let _ = rfd::MessageDialog::new()
             .set_title("NexoRC — Fatal Error")
             .set_description(&format!(
@@ -288,10 +295,13 @@ pub fn run() {
     let log_dir = data_dir.join("logs");
     let _ = std::fs::create_dir_all(&log_dir);
 
-    let scrub_writer = log_writer::ScrubRotateWriter::new(&log_dir)
-        .unwrap_or_else(|e| fatal_error(&format!(
-            "Cannot open log file in {}:\n{}", log_dir.display(), e
-        )));
+    let scrub_writer = log_writer::ScrubRotateWriter::new(&log_dir).unwrap_or_else(|e| {
+        fatal_error(&format!(
+            "Cannot open log file in {}:\n{}",
+            log_dir.display(),
+            e
+        ))
+    });
     // non_blocking moves scrub_writer into a background I/O thread so that
     // logging calls on the tokio runtime never block on disk writes.
     // _log_guard must stay alive for the process lifetime — drop it and the
@@ -305,8 +315,8 @@ pub fn run() {
     };
 
     use tracing_subscriber::prelude::*;
-    let env_filter = tracing_subscriber::EnvFilter::from_default_env()
-        .add_directive(default_level.into());
+    let env_filter =
+        tracing_subscriber::EnvFilter::from_default_env().add_directive(default_level.into());
 
     let file_layer = tracing_subscriber::fmt::layer()
         .with_writer(non_blocking_file)
@@ -341,33 +351,59 @@ pub fn run() {
         ))
     });
 
-    let (salt, verification_token, kdf_iterations_loaded, auto_lock_secs_loaded, allow_multiple_instances) =
-        if config_path.exists() {
-            let config_str = std::fs::read_to_string(&config_path).unwrap_or_default();
-            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
-                let salt = config["salt"]
-                    .as_str()
-                    .and_then(|s| base64::Engine::decode(&base64::engine::general_purpose::STANDARD, s).ok());
-                let token = config["verification_token"].as_str().map(|s| s.to_string());
-                let iters = config["kdf"]["iterations"]
-                    .as_u64()
-                    .map(|n| n as u32)
-                    .unwrap_or_else(|| {
-                        if salt.is_some() { 100_000 } else { encryption::DEFAULT_KDF_ITERATIONS }
-                    });
-                // MED-A1: restore persisted auto-lock timeout (default 15 min = 900 s)
-                let auto_lock = config["auto_lock_secs"].as_u64().unwrap_or(900);
-                // MED-A11: allow user to opt out of single-instance enforcement
-                let multi = config["allow_multiple_instances"].as_bool().unwrap_or(false);
-                (salt, token, iters, auto_lock, multi)
-            } else {
-                (None, None, encryption::DEFAULT_KDF_ITERATIONS, 900u64, false)
-            }
+    let (
+        salt,
+        verification_token,
+        kdf_iterations_loaded,
+        auto_lock_secs_loaded,
+        allow_multiple_instances,
+    ) = if config_path.exists() {
+        let config_str = std::fs::read_to_string(&config_path).unwrap_or_default();
+        if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
+            let salt = config["salt"].as_str().and_then(|s| {
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, s).ok()
+            });
+            let token = config["verification_token"].as_str().map(|s| s.to_string());
+            let iters = config["kdf"]["iterations"]
+                .as_u64()
+                .map(|n| n as u32)
+                .unwrap_or_else(|| {
+                    if salt.is_some() {
+                        100_000
+                    } else {
+                        encryption::DEFAULT_KDF_ITERATIONS
+                    }
+                });
+            // MED-A1: restore persisted auto-lock timeout (default 15 min = 900 s)
+            let auto_lock = config["auto_lock_secs"].as_u64().unwrap_or(900);
+            // MED-A11: allow user to opt out of single-instance enforcement
+            let multi = config["allow_multiple_instances"]
+                .as_bool()
+                .unwrap_or(false);
+            (salt, token, iters, auto_lock, multi)
         } else {
-            (None, None, encryption::DEFAULT_KDF_ITERATIONS, 900u64, false)
-        };
+            (
+                None,
+                None,
+                encryption::DEFAULT_KDF_ITERATIONS,
+                900u64,
+                false,
+            )
+        }
+    } else {
+        (
+            None,
+            None,
+            encryption::DEFAULT_KDF_ITERATIONS,
+            900u64,
+            false,
+        )
+    };
 
-    tracing::info!("KDF: PBKDF2-HMAC-SHA256 × {} iterations", kdf_iterations_loaded);
+    tracing::info!(
+        "KDF: PBKDF2-HMAC-SHA256 × {} iterations",
+        kdf_iterations_loaded
+    );
 
     let config_path_str = config_path
         .to_str()
@@ -406,11 +442,11 @@ pub fn run() {
         vnc_sessions: DashMap::new(),
         // HIGH-A5: 100 req/s per command name
         command_limiter: {
-            use std::num::NonZeroU32;
             use governor::{Quota, RateLimiter};
-            Arc::new(RateLimiter::dashmap(
-                Quota::per_second(NonZeroU32::new(100).unwrap())
-            ))
+            use std::num::NonZeroU32;
+            Arc::new(RateLimiter::dashmap(Quota::per_second(
+                NonZeroU32::new(100).unwrap(),
+            )))
         },
         // HIGH-A7: serializes concurrent change_master_password calls
         rekey_lock: std::sync::Mutex::new(()),
@@ -443,7 +479,10 @@ pub fn run() {
             // explicit env-var so an accidental demo never leaks credentials via
             // the network / storage inspector.
             #[cfg(debug_assertions)]
-            if std::env::var("NEXORC_OPEN_DEVTOOLS").map(|v| v == "1").unwrap_or(false) {
+            if std::env::var("NEXORC_OPEN_DEVTOOLS")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+            {
                 use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
                     window.open_devtools();
@@ -467,7 +506,10 @@ pub fn run() {
                     if sftp_sweep_counter >= 10 {
                         sftp_sweep_counter = 0;
                         sftp_ftp::pool_evict_stale(&state.sftp_pool);
-                        tracing::debug!("SFTP pool sweep complete ({} entries remaining)", state.sftp_pool.len());
+                        tracing::debug!(
+                            "SFTP pool sweep complete ({} entries remaining)",
+                            state.sftp_pool.len()
+                        );
                     }
 
                     let timeout_secs = match state.auto_lock_secs.read() {
@@ -493,7 +535,10 @@ pub fn run() {
 
                     {
                         use zeroize::Zeroize;
-                        let mut key_guard = state.encryption_key.write().unwrap_or_else(|e| e.into_inner());
+                        let mut key_guard = state
+                            .encryption_key
+                            .write()
+                            .unwrap_or_else(|e| e.into_inner());
                         if let Some(ref mut key) = *key_guard {
                             key.zeroize();
                         }
@@ -506,7 +551,8 @@ pub fn run() {
 
                     // HIGH-A3: kill + wait each RDP child to prevent zombie processes.
                     // Drain the map so ownership moves to the cleanup threads.
-                    let pids: Vec<String> = state.rdp_processes
+                    let pids: Vec<String> = state
+                        .rdp_processes
                         .iter()
                         .map(|e| e.key().clone())
                         .collect();
@@ -667,10 +713,5 @@ pub fn run() {
             import::bulk_import_connections,
         ])
         .run(tauri::generate_context!())
-        .unwrap_or_else(|e| {
-            fatal_error(&format!(
-                "Error running the Tauri application:\n{}",
-                e
-            ))
-        });
+        .unwrap_or_else(|e| fatal_error(&format!("Error running the Tauri application:\n{}", e)));
 }

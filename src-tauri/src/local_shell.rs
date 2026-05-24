@@ -1,9 +1,9 @@
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter};
-use portable_pty::{CommandBuilder, PtySize, native_pty_system, MasterPty};
 
 // ── Session ──────────────────────────────────────────────
 
@@ -55,18 +55,13 @@ fn detect_shell() -> (String, Vec<String>) {
         let candidates: &[&str] = if cfg!(target_os = "macos") {
             &[
                 env_shell.as_str(),
-                "/bin/zsh",   // default su macOS 10.15+
+                "/bin/zsh", // default su macOS 10.15+
                 "/bin/bash",
                 "/bin/sh",
             ]
         } else {
             // Linux and other Unix systems
-            &[
-                env_shell.as_str(),
-                "/bin/bash",
-                "/usr/bin/bash",
-                "/bin/sh",
-            ]
+            &[env_shell.as_str(), "/bin/bash", "/usr/bin/bash", "/bin/sh"]
         };
 
         for candidate in candidates {
@@ -87,7 +82,11 @@ fn detect_shell() -> (String, Vec<String>) {
 
 pub fn spawn_local_shell(app: &AppHandle, session_id: &str) -> Result<LocalShellSession, String> {
     let (shell_bin, shell_args) = detect_shell();
-    tracing::info!("Local shell spawning: shell={} session={}", shell_bin, session_id);
+    tracing::info!(
+        "Local shell spawning: shell={} session={}",
+        shell_bin,
+        session_id
+    );
 
     let _ = app.emit(
         &format!("shell:status:{}", session_id),
@@ -136,8 +135,7 @@ pub fn spawn_local_shell(app: &AppHandle, session_id: &str) -> Result<LocalShell
         .take_writer()
         .map_err(|e| format!("Failed to get PTY writer: {}", e))?;
 
-    let writer_arc: Arc<Mutex<Option<Box<dyn Write + Send>>>> =
-        Arc::new(Mutex::new(Some(writer)));
+    let writer_arc: Arc<Mutex<Option<Box<dyn Write + Send>>>> = Arc::new(Mutex::new(Some(writer)));
     let master_arc: Arc<Mutex<Option<Box<dyn MasterPty + Send>>>> =
         Arc::new(Mutex::new(Some(pty_pair.master)));
     let child_arc: Arc<Mutex<Option<Box<dyn portable_pty::Child + Send>>>> =
@@ -163,7 +161,10 @@ pub fn spawn_local_shell(app: &AppHandle, session_id: &str) -> Result<LocalShell
                         },
                     );
                 }
-                Err(e) => { tracing::debug!("Shell read error session={}: {}", sid, e); break; }
+                Err(e) => {
+                    tracing::debug!("Shell read error session={}: {}", sid, e);
+                    break;
+                }
             }
         }
 
@@ -194,7 +195,9 @@ pub fn spawn_local_shell(app: &AppHandle, session_id: &str) -> Result<LocalShell
 pub fn shell_send_input(session: &LocalShellSession, data: &str) -> Result<(), String> {
     let mut guard = session.writer.lock().map_err(|_| "Lock error")?;
     if let Some(ref mut writer) = *guard {
-        writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+        writer
+            .write_all(data.as_bytes())
+            .map_err(|e| e.to_string())?;
         writer.flush().map_err(|e| e.to_string())?;
         Ok(())
     } else {
@@ -208,7 +211,12 @@ pub fn shell_resize(session: &LocalShellSession, rows: u16, cols: u16) -> Result
     let guard = session.master.lock().map_err(|_| "Lock error")?;
     if let Some(ref master) = *guard {
         master
-            .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -217,11 +225,17 @@ pub fn shell_resize(session: &LocalShellSession, rows: u16, cols: u16) -> Result
 // ── Disconnect ───────────────────────────────────────────
 
 pub fn shell_disconnect(session: &LocalShellSession) -> Result<(), String> {
-    if let Ok(mut g) = session.writer.lock() { *g = None; }
-    if let Ok(mut g) = session.child.lock() {
-        if let Some(ref mut child) = *g { let _ = child.kill(); }
+    if let Ok(mut g) = session.writer.lock() {
         *g = None;
     }
-    if let Ok(mut g) = session.master.lock() { *g = None; }
+    if let Ok(mut g) = session.child.lock() {
+        if let Some(ref mut child) = *g {
+            let _ = child.kill();
+        }
+        *g = None;
+    }
+    if let Ok(mut g) = session.master.lock() {
+        *g = None;
+    }
     Ok(())
 }

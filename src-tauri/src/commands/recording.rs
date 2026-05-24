@@ -1,7 +1,7 @@
 use crate::state::AppState;
-use std::sync::Arc;
 use serde::Serialize;
 use std::path::Path;
+use std::sync::Arc;
 
 #[tauri::command]
 pub fn ssh_recording_start(
@@ -16,7 +16,9 @@ pub fn ssh_recording_start(
         cols,
         rows,
     };
-    state.recording_sessions.insert(session_id, Arc::new(std::sync::Mutex::new(rec)));
+    state
+        .recording_sessions
+        .insert(session_id, Arc::new(std::sync::Mutex::new(rec)));
     Ok(())
 }
 
@@ -68,8 +70,7 @@ pub fn ssh_recording_stop(
     let suffix_hex = suffix.replace('-', "");
     let filename = format!("{}_{}_{}.cast", session_id, now_unix, suffix_hex);
     let path = rec_dir.join(&filename);
-    std::fs::write(&path, &cast)
-        .map_err(|e| format!("Failed to save recording: {}", e))?;
+    std::fs::write(&path, &cast).map_err(|e| format!("Failed to save recording: {}", e))?;
 
     tracing::info!("Recording saved: {:?} ({} events)", path, rec.events.len());
     Ok(path.to_string_lossy().to_string())
@@ -84,7 +85,9 @@ pub struct RecordingInfo {
 }
 
 #[tauri::command]
-pub fn ssh_recording_list(state: tauri::State<AppState>) -> Result<Vec<RecordingInfo>, crate::error::AppError> {
+pub fn ssh_recording_list(
+    state: tauri::State<AppState>,
+) -> Result<Vec<RecordingInfo>, crate::error::AppError> {
     let rec_dir = std::path::Path::new(&state.data_dir).join("recordings");
     if !rec_dir.exists() {
         return Ok(vec![]);
@@ -116,14 +119,16 @@ pub fn ssh_recording_read(
     let joined = rec_dir.join(&filename);
 
     // Path traversal guard: canonicalize and ensure it stays within recordings dir
-    let path = joined
-        .canonicalize()
-        .map_err(|_| crate::error::AppError::NotFound(format!("Recording not found: {}", filename)))?;
+    let path = joined.canonicalize().map_err(|_| {
+        crate::error::AppError::NotFound(format!("Recording not found: {}", filename))
+    })?;
     let canon_rec_dir = rec_dir
         .canonicalize()
         .map_err(|_| crate::error::AppError::Internal("recordings dir missing".into()))?;
     if !path.starts_with(&canon_rec_dir) {
-        return Err(crate::error::AppError::Validation("Invalid filename".into()));
+        return Err(crate::error::AppError::Validation(
+            "Invalid filename".into(),
+        ));
     }
 
     std::fs::read_to_string(&path)

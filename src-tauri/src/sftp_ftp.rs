@@ -1,16 +1,16 @@
 use crate::error::AppError;
+use base64;
+use native_tls::TlsConnector;
 use serde::Serialize;
 use serde_json;
-use ts_rs::TS;
 use ssh2::Session;
 use std::io::{Read, Seek, Write};
 use std::net::TcpStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use suppaftp::{FtpStream, NativeTlsFtpStream, NativeTlsConnector};
-use native_tls::TlsConnector;
+use suppaftp::{FtpStream, NativeTlsConnector, NativeTlsFtpStream};
 use tauri::Emitter;
-use base64;
+use ts_rs::TS;
 
 // ── CRIT-A4: resolved connection auth, looked up entirely server-side ─────────
 struct ResolvedConn {
@@ -26,18 +26,29 @@ fn resolve_conn_internal(
     state: &crate::state::AppState,
     connection_id: &str,
 ) -> Result<ResolvedConn, AppError> {
-    let conn = state.db.get().map_err(|e| AppError::Internal(format!("DB pool: {}", e)))?;
-    let all = crate::database::get_connections(&conn)
-        .map_err(|e| AppError::Internal(e))?;
-    let connection = all.into_iter().find(|c| c.id == connection_id)
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::Internal(format!("DB pool: {}", e)))?;
+    let all = crate::database::get_connections(&conn).map_err(|e| AppError::Internal(e))?;
+    let connection = all
+        .into_iter()
+        .find(|c| c.id == connection_id)
         .ok_or_else(|| AppError::Internal("Connection not found".to_string()))?;
 
-    let key_guard = state.encryption_key.read()
+    let key_guard = state
+        .encryption_key
+        .read()
         .map_err(|e| AppError::Internal(format!("Lock: {}", e)))?;
-    let master_key = key_guard.as_ref()
+    let master_key = key_guard
+        .as_ref()
         .ok_or_else(|| AppError::AuthFailed("Vault locked".to_string()))?;
 
-    let creds = crate::commands::credentials::resolve_credentials_internal(&conn, master_key, connection_id)?;
+    let creds = crate::commands::credentials::resolve_credentials_internal(
+        &conn,
+        master_key,
+        connection_id,
+    )?;
 
     Ok(ResolvedConn {
         host: connection.host,
@@ -79,9 +90,7 @@ fn pool_take(
     let entry = pool.get(key)?;
     let mut guard = entry.lock().ok()?;
     let cached = guard.take()?;
-    if cached.last_used.elapsed().as_secs() < POOL_TTL_SECS
-        && cached.inner.0.authenticated()
-    {
+    if cached.last_used.elapsed().as_secs() < POOL_TTL_SECS && cached.inner.0.authenticated() {
         Some(cached.inner.0)
     } else {
         None // stale or dead — drop it
@@ -113,12 +122,12 @@ fn pool_return(
 /// Called from the auto-lock watcher thread every ~5 minutes, and also on
 /// `lock_vault` via `sftp_pool.clear()`.  Uses `try_lock` so an entry that is
 /// currently in use (another thread holds its Mutex) is left untouched.
-pub fn pool_evict_stale(
-    pool: &dashmap::DashMap<String, Arc<Mutex<Option<CachedSftpSession>>>>,
-) {
+pub fn pool_evict_stale(pool: &dashmap::DashMap<String, Arc<Mutex<Option<CachedSftpSession>>>>) {
     pool.retain(|_key, arc| {
         // If Mutex is currently held by an active SFTP command, skip eviction.
-        let Ok(guard) = arc.try_lock() else { return true };
+        let Ok(guard) = arc.try_lock() else {
+            return true;
+        };
         match &*guard {
             None => false, // already vacated — remove the shell entry
             Some(c) => {
@@ -172,7 +181,11 @@ struct TransferProgress {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 fn emit_progress(app: &tauri::AppHandle, id: &str, transferred: u64, total: u64, done: bool) {
-    let percent = if total > 0 { (transferred * 100 / total).min(100) as u8 } else { 0 };
+    let percent = if total > 0 {
+        (transferred * 100 / total).min(100) as u8
+    } else {
+        0
+    };
     let _ = app.emit(
         "transfer:progress",
         TransferProgress {
@@ -195,10 +208,11 @@ fn connect_ssh2(
 ) -> Result<Session, AppError> {
     let tcp = TcpStream::connect(format!("{}:{}", host, port))
         .map_err(|e| AppError::Network(format!("TCP connect error: {}", e)))?;
-    let mut sess =
-        Session::new().map_err(|e| AppError::Internal(format!("Failed to create ssh session: {}", e)))?;
+    let mut sess = Session::new()
+        .map_err(|e| AppError::Internal(format!("Failed to create ssh session: {}", e)))?;
     sess.set_tcp_stream(tcp);
-    sess.handshake().map_err(|e| AppError::Network(format!("SSH handshake failed: {}", e)))?;
+    sess.handshake()
+        .map_err(|e| AppError::Network(format!("SSH handshake failed: {}", e)))?;
 
     // ── NXS-001 fix: host-key TOFU verification ──────────────────────
     // Without this, libssh2 accepts any server key silently → trivial MITM.
@@ -218,18 +232,21 @@ fn connect_ssh2(
         crate::known_hosts::VerifyResult::Trusted => {
             // OK — key matches a previously trusted entry
         }
-        crate::known_hosts::VerifyResult::Unknown { fingerprint_sha256, .. } => {
+        crate::known_hosts::VerifyResult::Unknown {
+            fingerprint_sha256, ..
+        } => {
             // CRIT-2 fix: do NOT silently auto-trust on first encounter.
             // Return a structured error that the frontend can parse to show a
             // "Trust this host?" confirmation dialog.  The raw key is base64-encoded
             // so the frontend can call ssh_trust_host_key after the user confirms.
-            let raw_key_b64 = base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                raw_key,
-            );
+            let raw_key_b64 =
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, raw_key);
             tracing::warn!(
                 "SFTP host key unknown — refusing to auto-trust {}:{} {} {}",
-                host, port, key_type_str, fingerprint_sha256
+                host,
+                port,
+                key_type_str,
+                fingerprint_sha256
             );
             return Err(AppError::AuthFailed(format!(
                 "UNKNOWN_HOST_KEY:{}",
@@ -250,7 +267,10 @@ fn connect_ssh2(
             // Refuse to connect — possible MITM.
             tracing::error!(
                 "SSH host key MISMATCH for {}:{} — stored {} got {}",
-                host, port, stored_fingerprint_sha256, fingerprint_sha256
+                host,
+                port,
+                stored_fingerprint_sha256,
+                fingerprint_sha256
             );
             return Err(AppError::AuthFailed(format!(
                 "REMOTE HOST IDENTIFICATION HAS CHANGED for {}:{}.\n\
@@ -274,7 +294,9 @@ fn connect_ssh2(
         sess.userauth_password(username, pass)
             .map_err(|e| AppError::AuthFailed(format!("Password auth failed: {}", e)))?;
     } else {
-        return Err(AppError::AuthFailed("No authentication method provided".to_string()));
+        return Err(AppError::AuthFailed(
+            "No authentication method provided".to_string(),
+        ));
     }
 
     if !sess.authenticated() {
@@ -290,20 +312,33 @@ fn connect_ssh2(
 
 /// CRIT-A4: connect_ssh2_from_resolved wraps connect_ssh2 using server-resolved creds.
 /// If the creds include a private key, the content is written to a temp file first.
-fn connect_ssh2_resolved(rc: &ResolvedConn, data_dir: &str) -> Result<(Session, Option<std::path::PathBuf>), AppError> {
+fn connect_ssh2_resolved(
+    rc: &ResolvedConn,
+    data_dir: &str,
+) -> Result<(Session, Option<std::path::PathBuf>), AppError> {
     // Write private key content to a temp file if present
     let tmp: Option<std::path::PathBuf> = if let Some(ref key_content) = rc.private_key_decrypted {
         let p = std::env::temp_dir().join(format!("nxsftp_{}.pem", uuid::Uuid::new_v4()));
         std::fs::write(&p, key_content.as_bytes())
             .map_err(|e| AppError::Internal(format!("Write key: {}", e)))?;
         #[cfg(unix)]
-        { use std::os::unix::fs::PermissionsExt; let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)); }
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
+        }
         Some(p)
     } else {
         None
     };
     let key_path_str = tmp.as_ref().map(|p| p.to_string_lossy().into_owned());
-    let sess = connect_ssh2(&rc.host, rc.port, &rc.username, rc.password.as_deref(), key_path_str.as_deref(), data_dir)?;
+    let sess = connect_ssh2(
+        &rc.host,
+        rc.port,
+        &rc.username,
+        rc.password.as_deref(),
+        key_path_str.as_deref(),
+        data_dir,
+    )?;
     Ok((sess, tmp))
 }
 
@@ -320,9 +355,13 @@ pub fn sftp_list_dir(
     } else {
         connect_ssh2_resolved(&rc, &state.data_dir)?
     };
-    if let Some(t) = tmp { let _ = std::fs::remove_file(t); }
+    if let Some(t) = tmp {
+        let _ = std::fs::remove_file(t);
+    }
 
-    let sftp = sess.sftp().map_err(|e| AppError::Network(format!("SFTP subsystem error: {}", e)))?;
+    let sftp = sess
+        .sftp()
+        .map_err(|e| AppError::Network(format!("SFTP subsystem error: {}", e)))?;
 
     let stat = sftp
         .stat(Path::new(&path))
@@ -337,7 +376,11 @@ pub fn sftp_list_dir(
     let mut nodes = Vec::new();
 
     for (file_path, stat) in files {
-        let name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = file_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         if name == "." || name == ".." {
             continue;
         }
@@ -377,14 +420,16 @@ pub fn sftp_upload(
     resume: bool,
 ) -> Result<(), AppError> {
     let rc = resolve_conn_internal(&state, &connection_id)?;
-    let total = std::fs::metadata(&local_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let total = std::fs::metadata(&local_path).map(|m| m.len()).unwrap_or(0);
 
     // Upload sessions are not pooled (see comment on original).
     let (sess, tmp) = connect_ssh2_resolved(&rc, &state.data_dir)?;
-    if let Some(t) = tmp { let _ = std::fs::remove_file(t); }
-    let sftp = sess.sftp().map_err(|e| AppError::Network(format!("SFTP subsystem error: {}", e)))?;
+    if let Some(t) = tmp {
+        let _ = std::fs::remove_file(t);
+    }
+    let sftp = sess
+        .sftp()
+        .map_err(|e| AppError::Network(format!("SFTP subsystem error: {}", e)))?;
 
     // Check for an existing partial upload to resume from
     let skip_bytes: u64 = if resume && total > 0 {
@@ -397,8 +442,8 @@ pub fn sftp_upload(
         0
     };
 
-    let mut local_file =
-        std::fs::File::open(&local_path).map_err(|e| AppError::Internal(format!("Failed to open local file: {}", e)))?;
+    let mut local_file = std::fs::File::open(&local_path)
+        .map_err(|e| AppError::Internal(format!("Failed to open local file: {}", e)))?;
 
     let mut remote_file = if skip_bytes > 0 {
         local_file
@@ -421,11 +466,15 @@ pub fn sftp_upload(
     let mut buffer = [0u8; 65536];
 
     loop {
-        let n = local_file.read(&mut buffer).map_err(|e| AppError::Internal(format!("Read error: {}", e)))?;
+        let n = local_file
+            .read(&mut buffer)
+            .map_err(|e| AppError::Internal(format!("Read error: {}", e)))?;
         if n == 0 {
             break;
         }
-        remote_file.write_all(&buffer[..n]).map_err(|e| AppError::Network(format!("Write error: {}", e)))?;
+        remote_file
+            .write_all(&buffer[..n])
+            .map_err(|e| AppError::Network(format!("Write error: {}", e)))?;
         transferred += n as u64;
 
         if transferred.saturating_sub(last_emit) >= 65536 {
@@ -450,8 +499,12 @@ pub fn sftp_download(
 ) -> Result<(), AppError> {
     let rc = resolve_conn_internal(&state, &connection_id)?;
     let (sess, tmp) = connect_ssh2_resolved(&rc, &state.data_dir)?;
-    if let Some(t) = tmp { let _ = std::fs::remove_file(t); }
-    let sftp = sess.sftp().map_err(|e| AppError::Network(format!("SFTP subsystem error: {}", e)))?;
+    if let Some(t) = tmp {
+        let _ = std::fs::remove_file(t);
+    }
+    let sftp = sess
+        .sftp()
+        .map_err(|e| AppError::Network(format!("SFTP subsystem error: {}", e)))?;
 
     let total = sftp
         .stat(Path::new(&remote_path))
@@ -493,7 +546,9 @@ pub fn sftp_download(
         std::fs::OpenOptions::new()
             .append(true)
             .open(&local_path)
-            .map_err(|e| AppError::Internal(format!("Failed to open local file for append: {}", e)))?
+            .map_err(|e| {
+                AppError::Internal(format!("Failed to open local file for append: {}", e))
+            })?
     } else {
         std::fs::File::create(&local_path)
             .map_err(|e| AppError::Internal(format!("Failed to create local file: {}", e)))?
@@ -504,12 +559,15 @@ pub fn sftp_download(
     let mut buffer = [0u8; 65536];
 
     loop {
-        let n =
-            remote_file.read(&mut buffer).map_err(|e| AppError::Network(format!("Read error: {}", e)))?;
+        let n = remote_file
+            .read(&mut buffer)
+            .map_err(|e| AppError::Network(format!("Read error: {}", e)))?;
         if n == 0 {
             break;
         }
-        local_file.write_all(&buffer[..n]).map_err(|e| AppError::Internal(format!("Write error: {}", e)))?;
+        local_file
+            .write_all(&buffer[..n])
+            .map_err(|e| AppError::Internal(format!("Write error: {}", e)))?;
         transferred += n as u64;
 
         if transferred.saturating_sub(last_emit) >= 65536 {
@@ -536,13 +594,19 @@ pub fn sftp_delete(
     } else {
         connect_ssh2_resolved(&rc, &state.data_dir)?
     };
-    if let Some(t) = tmp { let _ = std::fs::remove_file(t); }
-    let sftp = sess.sftp().map_err(|e| AppError::Network(format!("SFTP subsystem error: {}", e)))?;
+    if let Some(t) = tmp {
+        let _ = std::fs::remove_file(t);
+    }
+    let sftp = sess
+        .sftp()
+        .map_err(|e| AppError::Network(format!("SFTP subsystem error: {}", e)))?;
 
     if is_dir {
-        sftp.rmdir(Path::new(&path)).map_err(|e| AppError::Network(format!("Failed to remove directory: {}", e)))?;
+        sftp.rmdir(Path::new(&path))
+            .map_err(|e| AppError::Network(format!("Failed to remove directory: {}", e)))?;
     } else {
-        sftp.unlink(Path::new(&path)).map_err(|e| AppError::Network(format!("Failed to remove file: {}", e)))?;
+        sftp.unlink(Path::new(&path))
+            .map_err(|e| AppError::Network(format!("Failed to remove file: {}", e)))?;
     }
 
     drop(sftp);
@@ -564,8 +628,12 @@ pub fn sftp_rename(
     } else {
         connect_ssh2_resolved(&rc, &state.data_dir)?
     };
-    if let Some(t) = tmp { let _ = std::fs::remove_file(t); }
-    let sftp = sess.sftp().map_err(|e| AppError::Network(format!("SFTP subsystem error: {}", e)))?;
+    if let Some(t) = tmp {
+        let _ = std::fs::remove_file(t);
+    }
+    let sftp = sess
+        .sftp()
+        .map_err(|e| AppError::Network(format!("SFTP subsystem error: {}", e)))?;
 
     sftp.rename(Path::new(&old_path), Path::new(&new_path), None)
         .map_err(|e| AppError::Network(format!("Failed to rename: {}", e)))?;
@@ -587,8 +655,12 @@ pub fn sftp_mkdir(
     } else {
         connect_ssh2_resolved(&rc, &state.data_dir)?
     };
-    if let Some(t) = tmp { let _ = std::fs::remove_file(t); }
-    let sftp = sess.sftp().map_err(|e| AppError::Network(format!("SFTP subsystem error: {}", e)))?;
+    if let Some(t) = tmp {
+        let _ = std::fs::remove_file(t);
+    }
+    let sftp = sess
+        .sftp()
+        .map_err(|e| AppError::Network(format!("SFTP subsystem error: {}", e)))?;
 
     sftp.mkdir(Path::new(&path), 0o755)
         .map_err(|e| AppError::Network(format!("Failed to create directory: {}", e)))?;
@@ -608,11 +680,13 @@ fn connect_ftp(
     password: Option<&str>,
 ) -> Result<FtpStream, AppError> {
     let addr = format!("{}:{}", host, port);
-    let mut ftp_stream =
-        FtpStream::connect(addr).map_err(|e| AppError::Network(format!("FTP connect error: {}", e)))?;
+    let mut ftp_stream = FtpStream::connect(addr)
+        .map_err(|e| AppError::Network(format!("FTP connect error: {}", e)))?;
 
     let pass = password.unwrap_or("");
-    ftp_stream.login(username, pass).map_err(|e| AppError::AuthFailed(format!("FTP login failed: {}", e)))?;
+    ftp_stream
+        .login(username, pass)
+        .map_err(|e| AppError::AuthFailed(format!("FTP login failed: {}", e)))?;
 
     Ok(ftp_stream)
 }
@@ -626,17 +700,19 @@ fn connect_ftps(
 ) -> Result<NativeTlsFtpStream, AppError> {
     let addr = format!("{}:{}", host, port);
     // Must start as NativeTlsFtpStream so into_secure's T=NativeTlsStream matches NativeTlsConnector
-    let ftp_stream =
-        NativeTlsFtpStream::connect(addr).map_err(|e| AppError::Network(format!("FTPS connect error: {}", e)))?;
+    let ftp_stream = NativeTlsFtpStream::connect(addr)
+        .map_err(|e| AppError::Network(format!("FTPS connect error: {}", e)))?;
 
-    let tls_connector = TlsConnector::new().map_err(|e| AppError::Internal(format!("TLS connector error: {}", e)))?;
+    let tls_connector = TlsConnector::new()
+        .map_err(|e| AppError::Internal(format!("TLS connector error: {}", e)))?;
     let connector = NativeTlsConnector::from(tls_connector);
     let mut ftps = ftp_stream
         .into_secure(connector, host)
         .map_err(|e| AppError::Network(format!("STARTTLS upgrade failed: {}", e)))?;
 
     let pass = password.unwrap_or("");
-    ftps.login(username, pass).map_err(|e| AppError::AuthFailed(format!("FTPS login failed: {}", e)))?;
+    ftps.login(username, pass)
+        .map_err(|e| AppError::AuthFailed(format!("FTPS login failed: {}", e)))?;
 
     Ok(ftps)
 }
@@ -665,7 +741,9 @@ fn mlsd_to_node(line: &str, base_path: &str) -> Option<FileNode> {
         let val = parts.next().unwrap_or("").trim();
         match key.as_str() {
             "type" => {
-                is_dir = val.eq_ignore_ascii_case("dir") || val.eq_ignore_ascii_case("cdir") || val.eq_ignore_ascii_case("pdir");
+                is_dir = val.eq_ignore_ascii_case("dir")
+                    || val.eq_ignore_ascii_case("cdir")
+                    || val.eq_ignore_ascii_case("pdir");
             }
             "size" => {
                 size = val.parse::<u64>().unwrap_or(0);
@@ -700,7 +778,13 @@ fn mlsd_to_node(line: &str, base_path: &str) -> Option<FileNode> {
         format!("{}/{}", base_path.trim_end_matches('/'), name)
     };
 
-    Some(FileNode { name: name.to_string(), path: full_path, is_dir, size, modified_at })
+    Some(FileNode {
+        name: name.to_string(),
+        path: full_path,
+        is_dir,
+        size,
+        modified_at,
+    })
 }
 
 // Compute days since Unix epoch (1970-01-01) for a given date.
@@ -755,13 +839,18 @@ pub fn ftp_list_dir(
     path: String,
 ) -> Result<FileListResult, AppError> {
     let rc = resolve_conn_internal(&state, &connection_id)?;
-    let safe_path = if path.is_empty() { "/".to_string() } else { path.clone() };
+    let safe_path = if path.is_empty() {
+        "/".to_string()
+    } else {
+        path.clone()
+    };
 
     let mut nodes: Vec<FileNode> = Vec::new();
 
     macro_rules! list_with {
         ($ftp:expr) => {{
-            $ftp.cwd(&safe_path).map_err(|e| AppError::Network(format!("CWD failed: {}", e)))?;
+            $ftp.cwd(&safe_path)
+                .map_err(|e| AppError::Network(format!("CWD failed: {}", e)))?;
             // 90-16: try MLSD first (RFC 3659 machine-readable listing)
             if let Ok(lines) = $ftp.mlsd(None) {
                 for line in &lines {
@@ -770,7 +859,9 @@ pub fn ftp_list_dir(
                     }
                 }
             } else {
-                let list_data = $ftp.list(None).map_err(|e| AppError::Network(format!("LIST failed: {}", e)))?;
+                let list_data = $ftp
+                    .list(None)
+                    .map_err(|e| AppError::Network(format!("LIST failed: {}", e)))?;
                 for line in &list_data {
                     if let Some(node) = parse_ftp_list_line(line, &safe_path) {
                         nodes.push(node);
@@ -817,7 +908,13 @@ impl<R: Read> Read for ProgressReader<R> {
         if n > 0 {
             self.transferred += n as u64;
             if self.transferred.saturating_sub(self.last_emit) >= 65536 {
-                emit_progress(&self.app, &self.transfer_id, self.transferred, self.total, false);
+                emit_progress(
+                    &self.app,
+                    &self.transfer_id,
+                    self.transferred,
+                    self.total,
+                    false,
+                );
                 self.last_emit = self.transferred;
             }
         }
@@ -836,24 +933,33 @@ pub fn ftp_upload(
     resume: bool,
 ) -> Result<(), AppError> {
     let rc = resolve_conn_internal(&state, &connection_id)?;
-    let total = std::fs::metadata(&local_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let total = std::fs::metadata(&local_path).map(|m| m.len()).unwrap_or(0);
 
     macro_rules! do_upload {
         ($ftp:expr) => {{
             let skip_bytes: u64 = if resume && total > 0 {
-                $ftp.size(&remote_path).ok().map(|s| s as u64).filter(|&s| s > 0 && s < total).unwrap_or(0)
-            } else { 0 };
+                $ftp.size(&remote_path)
+                    .ok()
+                    .map(|s| s as u64)
+                    .filter(|&s| s > 0 && s < total)
+                    .unwrap_or(0)
+            } else {
+                0
+            };
             let mut local_file = std::fs::File::open(&local_path)
                 .map_err(|e| AppError::Internal(format!("Failed to open local file: {}", e)))?;
             if skip_bytes > 0 {
-                local_file.seek(std::io::SeekFrom::Start(skip_bytes))
+                local_file
+                    .seek(std::io::SeekFrom::Start(skip_bytes))
                     .map_err(|e| AppError::Internal(format!("Seek error: {}", e)))?;
             }
             let mut reader = ProgressReader {
-                inner: local_file, transferred: skip_bytes, total,
-                last_emit: skip_bytes, app: app.clone(), transfer_id: transfer_id.clone(),
+                inner: local_file,
+                transferred: skip_bytes,
+                total,
+                last_emit: skip_bytes,
+                app: app.clone(),
+                transfer_id: transfer_id.clone(),
             };
             if skip_bytes > 0 {
                 $ftp.append_file(&remote_path, &mut reader)
@@ -892,29 +998,45 @@ pub fn ftp_download(
         ($ftp:expr) => {{
             let total = $ftp.size(&remote_path).ok().map(|s| s as u64).unwrap_or(0);
             let skip_bytes: u64 = if resume && total > 0 {
-                std::fs::metadata(&local_path).map(|m| m.len()).ok()
-                    .filter(|&s| s > 0 && s < total).unwrap_or(0)
-            } else { 0 };
+                std::fs::metadata(&local_path)
+                    .map(|m| m.len())
+                    .ok()
+                    .filter(|&s| s > 0 && s < total)
+                    .unwrap_or(0)
+            } else {
+                0
+            };
             if skip_bytes > 0 {
-                $ftp.resume_transfer(skip_bytes as usize)
-                    .map_err(|e| AppError::Network(format!("Failed to set resume offset: {}", e)))?;
+                $ftp.resume_transfer(skip_bytes as usize).map_err(|e| {
+                    AppError::Network(format!("Failed to set resume offset: {}", e))
+                })?;
             }
-            let mut stream = $ftp.retr_as_stream(&remote_path)
+            let mut stream = $ftp
+                .retr_as_stream(&remote_path)
                 .map_err(|e| AppError::Network(format!("Failed to open remote file: {}", e)))?;
             let mut local_file = if skip_bytes > 0 {
-                std::fs::OpenOptions::new().append(true).open(&local_path)
+                std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&local_path)
                     .map_err(|e| AppError::Internal(format!("Failed to open local file: {}", e)))?
             } else {
-                std::fs::File::create(&local_path)
-                    .map_err(|e| AppError::Internal(format!("Failed to create local file: {}", e)))?
+                std::fs::File::create(&local_path).map_err(|e| {
+                    AppError::Internal(format!("Failed to create local file: {}", e))
+                })?
             };
             let mut transferred = skip_bytes;
             let mut last_emit = skip_bytes;
             let mut buffer = [0u8; 65536];
             loop {
-                let n = stream.read(&mut buffer).map_err(|e| AppError::Network(format!("Read error: {}", e)))?;
-                if n == 0 { break; }
-                local_file.write_all(&buffer[..n]).map_err(|e| AppError::Internal(format!("Write error: {}", e)))?;
+                let n = stream
+                    .read(&mut buffer)
+                    .map_err(|e| AppError::Network(format!("Read error: {}", e)))?;
+                if n == 0 {
+                    break;
+                }
+                local_file
+                    .write_all(&buffer[..n])
+                    .map_err(|e| AppError::Internal(format!("Write error: {}", e)))?;
                 transferred += n as u64;
                 if transferred.saturating_sub(last_emit) >= 65536 {
                     emit_progress(&app, &transfer_id, transferred, total, false);
@@ -949,9 +1071,11 @@ pub fn ftp_delete(
     macro_rules! do_delete {
         ($ftp:expr) => {{
             if is_dir {
-                $ftp.rmdir(&path).map_err(|e| AppError::Network(format!("Failed to remove directory: {}", e)))?;
+                $ftp.rmdir(&path)
+                    .map_err(|e| AppError::Network(format!("Failed to remove directory: {}", e)))?;
             } else {
-                $ftp.rm(&path).map_err(|e| AppError::Network(format!("Failed to remove file: {}", e)))?;
+                $ftp.rm(&path)
+                    .map_err(|e| AppError::Network(format!("Failed to remove file: {}", e)))?;
             }
             $ftp.quit().ok();
         }};
@@ -976,7 +1100,8 @@ pub fn ftp_rename(
     let rc = resolve_conn_internal(&state, &connection_id)?;
     macro_rules! do_rename {
         ($ftp:expr) => {{
-            $ftp.rename(&old_path, &new_path).map_err(|e| AppError::Network(format!("Failed to rename: {}", e)))?;
+            $ftp.rename(&old_path, &new_path)
+                .map_err(|e| AppError::Network(format!("Failed to rename: {}", e)))?;
             $ftp.quit().ok();
         }};
     }
@@ -999,7 +1124,8 @@ pub fn ftp_mkdir(
     let rc = resolve_conn_internal(&state, &connection_id)?;
     macro_rules! do_mkdir {
         ($ftp:expr) => {{
-            $ftp.mkdir(&path).map_err(|e| AppError::Network(format!("Failed to create dir: {}", e)))?;
+            $ftp.mkdir(&path)
+                .map_err(|e| AppError::Network(format!("Failed to create dir: {}", e)))?;
             $ftp.quit().ok();
         }};
     }

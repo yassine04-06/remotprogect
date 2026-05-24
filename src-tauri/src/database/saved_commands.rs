@@ -1,11 +1,14 @@
+use super::models::{CreateSavedCommandRequest, SavedCommand, UpdateSavedCommandRequest};
+use chrono::Utc;
 use rusqlite::{params, Connection};
 use uuid::Uuid;
-use chrono::Utc;
-use super::models::{SavedCommand, CreateSavedCommandRequest, UpdateSavedCommandRequest};
 
 // ── Saved Commands CRUD ────────────────────────────────────
 
-pub fn create_saved_command(conn: &Connection, req: CreateSavedCommandRequest) -> Result<SavedCommand, String> {
+pub fn create_saved_command(
+    conn: &Connection,
+    req: CreateSavedCommandRequest,
+) -> Result<SavedCommand, String> {
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
 
@@ -22,7 +25,15 @@ pub fn create_saved_command(conn: &Connection, req: CreateSavedCommandRequest) -
     conn.execute(
         "INSERT INTO saved_commands (id, name, command, description, tags, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![res.id, res.name, res.command, res.description, res.tags, res.created_at, res.updated_at],
+        params![
+            res.id,
+            res.name,
+            res.command,
+            res.description,
+            res.tags,
+            res.created_at,
+            res.updated_at
+        ],
     )
     .map_err(|e| format!("Failed to create saved command: {}", e))?;
 
@@ -53,7 +64,10 @@ pub fn get_saved_commands(conn: &Connection) -> Result<Vec<SavedCommand>, String
     Ok(cmds)
 }
 
-pub fn update_saved_command(conn: &Connection, req: UpdateSavedCommandRequest) -> Result<SavedCommand, String> {
+pub fn update_saved_command(
+    conn: &Connection,
+    req: UpdateSavedCommandRequest,
+) -> Result<SavedCommand, String> {
     let now = Utc::now().to_rfc3339();
 
     conn.execute(

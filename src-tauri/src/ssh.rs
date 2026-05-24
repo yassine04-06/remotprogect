@@ -72,18 +72,23 @@ impl client::Handler for NexusSshHandler {
             .decode(&key_b64)
             .map_err(|e| AppError::Internal(format!("Host key base64 decode: {}", e)))?;
 
-        match crate::known_hosts::verify(
-            &self.data_dir, &self.host, self.port, key_type, &raw_key,
-        ) {
+        match crate::known_hosts::verify(&self.data_dir, &self.host, self.port, key_type, &raw_key)
+        {
             crate::known_hosts::VerifyResult::Trusted => Ok(true),
             crate::known_hosts::VerifyResult::Unknown { .. } => {
                 crate::known_hosts::trust(
-                    &self.data_dir, &self.host, self.port, key_type, &raw_key,
+                    &self.data_dir,
+                    &self.host,
+                    self.port,
+                    key_type,
+                    &raw_key,
                 )
                 .map_err(AppError::Internal)?;
                 tracing::info!(
                     "SSH TOFU: pinned {}:{} ({}) in known_hosts.json",
-                    self.host, self.port, key_type
+                    self.host,
+                    self.port,
+                    key_type
                 );
                 Ok(true)
             }
@@ -119,9 +124,7 @@ fn parse_key(pem: &str, passphrase: Option<&str>) -> Result<KeyPair, AppError> {
                 || lower.contains("aes")
                 || lower.contains("bcrypt"))
         {
-            AppError::KeyEncrypted(
-                "SSH private key is encrypted — passphrase required".to_string(),
-            )
+            AppError::KeyEncrypted("SSH private key is encrypted — passphrase required".to_string())
         } else {
             AppError::AuthFailed(format!("Private key parse: {}", msg))
         }
@@ -208,12 +211,11 @@ pub async fn ssh_connect(
 
     let config = russh_config();
 
-    let key_pair: Option<KeyPair> =
-        if let Some(pem) = key_pem.filter(|s| !s.is_empty()) {
-            Some(parse_key(pem, passphrase)?)
-        } else {
-            None
-        };
+    let key_pair: Option<KeyPair> = if let Some(pem) = key_pem.filter(|s| !s.is_empty()) {
+        Some(parse_key(pem, passphrase)?)
+    } else {
+        None
+    };
 
     // ── Transport: direct or through a jump host ──────────────────────────────
 
@@ -232,14 +234,22 @@ pub async fn ssh_connect(
             host: jp.host.clone(),
             port: jp.port,
         };
-        let mut jump_sess =
-            client::connect(config.clone(), (jp.host.as_str(), jp.port as u16), jump_handler)
-                .await
-                .map_err(|e| AppError::Network(format!("Jump host connect: {}", e)))?;
+        let mut jump_sess = client::connect(
+            config.clone(),
+            (jp.host.as_str(), jp.port as u16),
+            jump_handler,
+        )
+        .await
+        .map_err(|e| AppError::Network(format!("Jump host connect: {}", e)))?;
 
-        authenticate(&mut jump_sess, &jp.username, jkey_pair, jp.password.as_deref())
-            .await
-            .map_err(|e| AppError::AuthFailed(format!("Jump host auth: {}", e)))?;
+        authenticate(
+            &mut jump_sess,
+            &jp.username,
+            jkey_pair,
+            jp.password.as_deref(),
+        )
+        .await
+        .map_err(|e| AppError::AuthFailed(format!("Jump host auth: {}", e)))?;
 
         let mut jump_ch = jump_sess
             .channel_open_direct_tcpip(host, port as u32, "127.0.0.1", 0)
@@ -321,22 +331,38 @@ pub async fn ssh_connect(
         match tun.r#type.as_str() {
             "Local" => {
                 let lp = tun.local_port as u16;
-                let dh = tun.destination_host.unwrap_or_else(|| "localhost".to_string());
+                let dh = tun
+                    .destination_host
+                    .unwrap_or_else(|| "localhost".to_string());
                 let dp = tun.destination_port.unwrap_or(80) as u32;
                 let handle = Arc::clone(&session); // Arc clone — cheap, no Handle clone needed
                 tokio::spawn(async move {
                     let listener = match tokio::net::TcpListener::bind(("127.0.0.1", lp)).await {
-                        Ok(l) => { tracing::info!("SSH tunnel: :{} → {}:{}", lp, dh, dp); l }
-                        Err(e) => { tracing::error!("SSH tunnel bind :{} failed: {}", lp, e); return; }
+                        Ok(l) => {
+                            tracing::info!("SSH tunnel: :{} → {}:{}", lp, dh, dp);
+                            l
+                        }
+                        Err(e) => {
+                            tracing::error!("SSH tunnel bind :{} failed: {}", lp, e);
+                            return;
+                        }
                     };
                     loop {
-                        let Ok((socket, _)) = listener.accept().await else { break };
+                        let Ok((socket, _)) = listener.accept().await else {
+                            break;
+                        };
                         let h = Arc::clone(&handle);
                         let dh2 = dh.clone();
                         tokio::spawn(async move {
-                            let mut ch = match h.channel_open_direct_tcpip(&dh2, dp, "127.0.0.1", lp as u32).await {
+                            let mut ch = match h
+                                .channel_open_direct_tcpip(&dh2, dp, "127.0.0.1", lp as u32)
+                                .await
+                            {
                                 Ok(c) => c,
-                                Err(e) => { tracing::warn!("Tunnel ch: {}", e); return; }
+                                Err(e) => {
+                                    tracing::warn!("Tunnel ch: {}", e);
+                                    return;
+                                }
                             };
                             let (mut sr, mut sw) = socket.into_split();
                             let mut buf = vec![0u8; 8192];
@@ -359,7 +385,10 @@ pub async fn ssh_connect(
                 });
             }
             other => {
-                tracing::warn!("SSH tunnel type '{}' not yet supported in russh mode — skipped.", other);
+                tracing::warn!(
+                    "SSH tunnel type '{}' not yet supported in russh mode — skipped.",
+                    other
+                );
             }
         }
     }
@@ -372,11 +401,14 @@ pub async fn ssh_connect(
         let rec = recording.clone();
         tokio::spawn(async move {
             let _sess = session; // keep Arc<Handle> alive; drops when task ends
-            let _ = app_clone.emit(&format!("ssh:status:{}", sid), SshStatusEvent {
-                session_id: sid.clone(),
-                status: "connected".to_string(),
-                message: "Connected".to_string(),
-            });
+            let _ = app_clone.emit(
+                &format!("ssh:status:{}", sid),
+                SshStatusEvent {
+                    session_id: sid.clone(),
+                    status: "connected".to_string(),
+                    message: "Connected".to_string(),
+                },
+            );
             loop {
                 tokio::select! {
                     msg = channel.wait() => match msg {
@@ -448,12 +480,16 @@ pub async fn ssh_connect(
 // ── Sync helpers (Tauri command handlers are sync) ────────────────────────────
 
 pub fn ssh_send_input(session: &SshSession, data: &str) -> Result<(), AppError> {
-    session.cmd_tx.send(SshCmd::Input(data.as_bytes().to_vec()))
+    session
+        .cmd_tx
+        .send(SshCmd::Input(data.as_bytes().to_vec()))
         .map_err(|_| AppError::Internal("SSH session no longer active".to_string()))
 }
 
 pub fn ssh_resize(session: &SshSession, rows: u16, cols: u16) -> Result<(), AppError> {
-    session.cmd_tx.send(SshCmd::Resize { rows, cols })
+    session
+        .cmd_tx
+        .send(SshCmd::Resize { rows, cols })
         .map_err(|_| AppError::Internal("SSH session no longer active".to_string()))
 }
 

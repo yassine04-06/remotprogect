@@ -9,8 +9,8 @@
 //
 // Run with: cargo test --test command_tests
 
-use rusqlite::Connection;
 use remote_manager_lib::{database, test_helpers};
+use rusqlite::Connection;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -50,11 +50,9 @@ fn create_multiple_protocols() {
 #[test]
 fn delete_connection() {
     let db = open_db();
-    let created = database::create_connection(
-        &db,
-        test_helpers::make_test_connection("del-host", "SSH"),
-    )
-    .expect("create");
+    let created =
+        database::create_connection(&db, test_helpers::make_test_connection("del-host", "SSH"))
+            .expect("create");
     database::delete_connection(&db, &created.id).expect("delete");
     let all = database::get_connections(&db).expect("list");
     assert!(all.is_empty(), "connection list must be empty after delete");
@@ -67,7 +65,10 @@ fn connection_defaults_are_sane() {
         .expect("create");
     assert!(!c.use_ftps, "use_ftps default must be false");
     assert!(!c.rdp_nla, "rdp_nla default must be false");
-    assert_eq!(c.docker_transport, "tcp", "docker_transport default must be 'tcp'");
+    assert_eq!(
+        c.docker_transport, "tcp",
+        "docker_transport default must be 'tcp'"
+    );
     assert!(!c.is_favorite, "is_favorite default must be false");
 }
 
@@ -122,8 +123,16 @@ fn connection_assigned_to_group() {
 #[test]
 fn audit_log_insert_and_list() {
     let db = open_db();
-    database::audit_log_insert(&db, "connect", "connection", "sess-1", "10.0.0.1", "success", "")
-        .expect("audit insert");
+    database::audit_log_insert(
+        &db,
+        "connect",
+        "connection",
+        "sess-1",
+        "10.0.0.1",
+        "success",
+        "",
+    )
+    .expect("audit insert");
     let entries = database::audit_log_list(&db, 50).expect("audit list");
     assert_eq!(entries.len(), 1);
     let e = &entries[0];
@@ -157,8 +166,7 @@ fn audit_log_chain_verify_clean() {
 #[test]
 fn audit_log_chain_detects_tampering() {
     let db = open_db();
-    database::audit_log_insert(&db, "login", "vault", "s1", "host", "success", "")
-        .expect("insert");
+    database::audit_log_insert(&db, "login", "vault", "s1", "host", "success", "").expect("insert");
     database::audit_log_insert(&db, "connect", "connection", "s2", "host", "success", "")
         .expect("insert");
 
@@ -186,7 +194,10 @@ fn export_and_reimport_round_trip() {
 
     let export_data = database::export_all(&db).expect("export");
     // Should contain at least one connection
-    assert!(!export_data.connections.is_empty(), "exported connections must not be empty");
+    assert!(
+        !export_data.connections.is_empty(),
+        "exported connections must not be empty"
+    );
 
     // Re-import into a fresh DB
     let db2 = open_db();

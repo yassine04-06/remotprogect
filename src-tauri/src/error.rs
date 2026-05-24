@@ -1,5 +1,5 @@
-use serde::{Serialize, Serializer};
 use serde::ser::SerializeStruct;
+use serde::{Serialize, Serializer};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -31,14 +31,14 @@ pub enum AppError {
 impl AppError {
     pub fn code(&self) -> &'static str {
         match self {
-            AppError::Database(_)    => "DATABASE_ERROR",
-            AppError::AuthFailed(_)  => "AUTH_FAILED",
-            AppError::Network(_)     => "NETWORK_ERROR",
-            AppError::Vault(_)       => "VAULT_ERROR",
-            AppError::Internal(_)    => "INTERNAL_ERROR",
-            AppError::NotFound(_)    => "NOT_FOUND",
-            AppError::Validation(_)  => "VALIDATION_ERROR",
-            AppError::RateLimit(_)   => "RATE_LIMIT",
+            AppError::Database(_) => "DATABASE_ERROR",
+            AppError::AuthFailed(_) => "AUTH_FAILED",
+            AppError::Network(_) => "NETWORK_ERROR",
+            AppError::Vault(_) => "VAULT_ERROR",
+            AppError::Internal(_) => "INTERNAL_ERROR",
+            AppError::NotFound(_) => "NOT_FOUND",
+            AppError::Validation(_) => "VALIDATION_ERROR",
+            AppError::RateLimit(_) => "RATE_LIMIT",
             AppError::KeyEncrypted(_) => "KEY_ENCRYPTED",
         }
     }

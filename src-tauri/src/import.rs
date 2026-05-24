@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::state::AppState;
 use crate::database::models::CreateConnectionRequest;
+use crate::state::AppState;
 
 // ── Shared types ─────────────────────────────────────────────────────────────
 
@@ -90,9 +90,9 @@ fn build_ssh_config_entry(alias: &str, block: &[(String, String)]) -> Option<Imp
 
     for (key, value) in block {
         match key.as_str() {
-            "hostname"     => hostname = value.clone(),
-            "port"         => port = value.parse().unwrap_or(22),
-            "user"         => username = value.clone(),
+            "hostname" => hostname = value.clone(),
+            "port" => port = value.parse().unwrap_or(22),
+            "user" => username = value.clone(),
             "identityfile" => identity_file = Some(expand_tilde(value)),
             _ => {}
         }
@@ -103,7 +103,10 @@ fn build_ssh_config_entry(alias: &str, block: &[(String, String)]) -> Option<Imp
     }
 
     let warning = identity_file.as_ref().map(|p| {
-        format!("Key file noted ({}). Import the key in SSH Key Manager to use it.", p)
+        format!(
+            "Key file noted ({}). Import the key in SSH Key Manager to use it.",
+            p
+        )
     });
 
     Some(ImportedConnection {
@@ -182,15 +185,23 @@ fn parse_rdp_content(content: &str, default_name: &str) -> ImportedConnection {
 
     for raw in content.lines() {
         let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
 
         // Split on FIRST colon → key, rest.
-        let first = match line.find(':') { Some(i) => i, None => continue };
+        let first = match line.find(':') {
+            Some(i) => i,
+            None => continue,
+        };
         let key = line[..first].trim().to_lowercase();
         let rest = &line[first + 1..];
 
         // Split rest on FIRST colon → type_char, value.
-        let second = match rest.find(':') { Some(i) => i, None => continue };
+        let second = match rest.find(':') {
+            Some(i) => i,
+            None => continue,
+        };
         let type_char = rest[..second].trim();
         let value = rest[second + 1..].trim();
 
@@ -250,10 +261,7 @@ fn parse_rdp_content(content: &str, default_name: &str) -> ImportedConnection {
 
 /// Opens a native file-picker dialog on the Rust side and returns the chosen path.
 #[tauri::command]
-pub async fn import_pick_file(
-    filter_name: String,
-    extensions: Vec<String>,
-) -> Option<String> {
+pub async fn import_pick_file(filter_name: String, extensions: Vec<String>) -> Option<String> {
     let ext_refs: Vec<&str> = extensions.iter().map(|s| s.as_str()).collect();
     rfd::FileDialog::new()
         .add_filter(&filter_name, &ext_refs)
@@ -263,8 +271,7 @@ pub async fn import_pick_file(
 
 #[tauri::command]
 pub async fn import_rdp_file(path: String) -> Result<Vec<ImportedConnection>, String> {
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Cannot read file: {}", e))?;
+    let content = std::fs::read_to_string(&path).map_err(|e| format!("Cannot read file: {}", e))?;
 
     let default_name = std::path::Path::new(&path)
         .file_stem()
@@ -344,7 +351,9 @@ fn scan_putty_registry() -> Result<Vec<ImportedConnection>, String> {
         }
 
         let host: String = session_key.get_value("HostName").unwrap_or_default();
-        if host.is_empty() { continue; }
+        if host.is_empty() {
+            continue;
+        }
 
         let port: u32 = session_key.get_value("PortNumber").unwrap_or(22u32);
         let username: String = session_key.get_value("UserName").unwrap_or_default();
@@ -352,7 +361,9 @@ fn scan_putty_registry() -> Result<Vec<ImportedConnection>, String> {
 
         let display_name = putty_url_decode(&encoded);
         // Skip the built-in "Default Settings" placeholder
-        if display_name.eq_ignore_ascii_case("Default Settings") { continue; }
+        if display_name.eq_ignore_ascii_case("Default Settings") {
+            continue;
+        }
 
         connections.push(ImportedConnection {
             name: display_name,
@@ -360,7 +371,11 @@ fn scan_putty_registry() -> Result<Vec<ImportedConnection>, String> {
             port: port as i32,
             protocol: "SSH".to_string(),
             username,
-            ssh_key_path: if key_file.is_empty() { None } else { Some(key_file) },
+            ssh_key_path: if key_file.is_empty() {
+                None
+            } else {
+                Some(key_file)
+            },
             source: "putty".to_string(),
             ..Default::default()
         });
@@ -388,7 +403,7 @@ fn mremoteng_derive_key(password: &str, salt: &[u8], iterations: u32) -> [u8; 32
 }
 
 fn mremoteng_decrypt(b64: &str, password: &str, iterations: u32) -> Result<String, &'static str> {
-    use aes_gcm::{Aes256Gcm, KeyInit, aead::Aead};
+    use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit};
     use base64::Engine as _;
 
     let data = base64::engine::general_purpose::STANDARD
@@ -441,15 +456,17 @@ fn mremoteng_node_to_conn(
 ) -> Option<ImportedConnection> {
     let name = xml_attr(e, "Name").unwrap_or_default();
     let host = xml_attr(e, "Hostname").unwrap_or_default();
-    if host.is_empty() { return None; }
+    if host.is_empty() {
+        return None;
+    }
 
     let protocol_raw = xml_attr(e, "Protocol").unwrap_or_else(|| "RDP".to_string());
     let (protocol, default_port): (&str, i32) = match protocol_raw.to_uppercase().as_str() {
         "SSH2" | "SSH1" => ("SSH", 22),
-        "RDP"            => ("RDP", 3389),
-        "VNC"            => ("VNC", 5900),
-        "SFTP"           => ("SFTP", 22),
-        "FTP"            => ("FTP", 21),
+        "RDP" => ("RDP", 3389),
+        "VNC" => ("VNC", 5900),
+        "SFTP" => ("SFTP", 22),
+        "FTP" => ("FTP", 21),
         _ => return None, // Skip Telnet, Raw, HTTP, HTTPS, etc.
     };
 
@@ -480,12 +497,15 @@ fn mremoteng_node_to_conn(
     };
 
     // RDP-specific
-    let rdp_redirect_drives =
-        xml_attr(e, "RedirectDiskDrives").map(|v| v == "true").unwrap_or(false);
-    let rdp_redirect_printers =
-        xml_attr(e, "RedirectPrinters").map(|v| v == "true").unwrap_or(false);
-    let rdp_redirect_audio =
-        xml_attr(e, "RedirectSound").map(|v| v == "PlayLocally").unwrap_or(false);
+    let rdp_redirect_drives = xml_attr(e, "RedirectDiskDrives")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let rdp_redirect_printers = xml_attr(e, "RedirectPrinters")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let rdp_redirect_audio = xml_attr(e, "RedirectSound")
+        .map(|v| v == "PlayLocally")
+        .unwrap_or(false);
 
     let (rdp_width, rdp_height) = if protocol == "RDP" {
         match xml_attr(e, "Resolution").as_deref() {
@@ -525,7 +545,7 @@ fn mremoteng_node_to_conn(
 }
 
 fn parse_mremoteng_xml(content: &str, password: &str) -> Result<Vec<ImportedConnection>, String> {
-    use quick_xml::{Reader, events::Event};
+    use quick_xml::{events::Event, Reader};
 
     let mut reader = Reader::from_str(content);
     let mut buf = Vec::new();
@@ -561,7 +581,10 @@ fn parse_mremoteng_xml(content: &str, password: &str) -> Result<Vec<ImportedConn
                         } else {
                             node_type_stack.push(false);
                             if let Some(conn) = mremoteng_node_to_conn(
-                                e, &container_stack, password, kdf_iterations,
+                                e,
+                                &container_stack,
+                                password,
+                                kdf_iterations,
                             ) {
                                 connections.push(conn);
                             }
@@ -577,9 +600,9 @@ fn parse_mremoteng_xml(content: &str, password: &str) -> Result<Vec<ImportedConn
                 let tag = std::str::from_utf8(local.as_ref()).unwrap_or("");
                 if tag == "Node" {
                     if xml_attr(e, "Type").as_deref() == Some("Connection") {
-                        if let Some(conn) = mremoteng_node_to_conn(
-                            e, &container_stack, password, kdf_iterations,
-                        ) {
+                        if let Some(conn) =
+                            mremoteng_node_to_conn(e, &container_stack, password, kdf_iterations)
+                        {
                             connections.push(conn);
                         }
                     }
@@ -614,8 +637,7 @@ pub async fn import_mremoteng(
     path: String,
     password: Option<String>,
 ) -> Result<Vec<ImportedConnection>, String> {
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Cannot read file: {}", e))?;
+    let content = std::fs::read_to_string(&path).map_err(|e| format!("Cannot read file: {}", e))?;
 
     let pw = password.as_deref().unwrap_or("mR3m");
     parse_mremoteng_xml(&content, pw)
@@ -653,16 +675,23 @@ pub async fn import_ssh_config(path: Option<String>) -> Result<Vec<ImportedConne
 
 fn rdm_type_to_protocol(conn_type: &str) -> Option<(&'static str, i32)> {
     let ct = conn_type.to_ascii_lowercase();
-    if ct.contains("rdp") { Some(("RDP", 3389)) }
-    else if ct.contains("ssh") { Some(("SSH", 22)) }
-    else if ct == "vnc" { Some(("VNC", 5900)) }
-    else if ct == "sftp" { Some(("SFTP", 22)) }
-    else if ct == "ftp" { Some(("FTP", 21)) }
-    else { None }
+    if ct.contains("rdp") {
+        Some(("RDP", 3389))
+    } else if ct.contains("ssh") {
+        Some(("SSH", 22))
+    } else if ct == "vnc" {
+        Some(("VNC", 5900))
+    } else if ct == "sftp" {
+        Some(("SFTP", 22))
+    } else if ct == "ftp" {
+        Some(("FTP", 21))
+    } else {
+        None
+    }
 }
 
 fn parse_rdm_xml(content: &str) -> Result<Vec<ImportedConnection>, String> {
-    use quick_xml::{Reader, events::Event};
+    use quick_xml::{events::Event, Reader};
     use std::collections::HashMap;
 
     let mut reader = Reader::from_str(content);
@@ -679,7 +708,9 @@ fn parse_rdm_xml(content: &str) -> Result<Vec<ImportedConnection>, String> {
             Ok(Event::Start(ref e)) => {
                 let qname = e.name();
                 let local = qname.local_name();
-                let tag = std::str::from_utf8(local.as_ref()).unwrap_or("").to_string();
+                let tag = std::str::from_utf8(local.as_ref())
+                    .unwrap_or("")
+                    .to_string();
                 if tag == "Connection" && !in_conn {
                     in_conn = true;
                     fields.clear();
@@ -703,36 +734,77 @@ fn parse_rdm_xml(content: &str) -> Result<Vec<ImportedConnection>, String> {
                 let local = qname.local_name();
                 let tag = std::str::from_utf8(local.as_ref()).unwrap_or("");
                 if tag == "Connection" && in_conn {
-                    let conn_type = fields.get("ConnectionType").map(String::as_str).unwrap_or("");
+                    let conn_type = fields
+                        .get("ConnectionType")
+                        .map(String::as_str)
+                        .unwrap_or("");
                     if let Some((proto, def_port)) = rdm_type_to_protocol(conn_type) {
-                        let host = fields.get("Host")
+                        let host = fields
+                            .get("Host")
                             .or_else(|| fields.get("HostName"))
                             .cloned()
                             .unwrap_or_default();
                         if !host.is_empty() {
                             let name = fields.get("Name").cloned().unwrap_or_else(|| host.clone());
-                            let port = fields.get("Port").and_then(|p| p.parse().ok()).unwrap_or(def_port);
-                            let username = fields.get("UserName").or_else(|| fields.get("Username")).cloned().unwrap_or_default();
+                            let port = fields
+                                .get("Port")
+                                .and_then(|p| p.parse().ok())
+                                .unwrap_or(def_port);
+                            let username = fields
+                                .get("UserName")
+                                .or_else(|| fields.get("Username"))
+                                .cloned()
+                                .unwrap_or_default();
                             let domain = fields.get("Domain").filter(|s| !s.is_empty()).cloned();
-                            let password = fields.get("Password").filter(|s| !s.is_empty()).cloned();
+                            let password =
+                                fields.get("Password").filter(|s| !s.is_empty()).cloned();
                             // Group: RDM uses backslash hierarchy
-                            let group_path = fields.get("Group")
+                            let group_path = fields
+                                .get("Group")
                                 .filter(|s| !s.is_empty())
                                 .map(|g| g.replace('\\', "/"));
-                            let rdp_width = if proto == "RDP" { fields.get("ScreenWidth").and_then(|v| v.parse().ok()) } else { None };
-                            let rdp_height = if proto == "RDP" { fields.get("ScreenHeight").and_then(|v| v.parse().ok()) } else { None };
-                            let rdp_color_depth = if proto == "RDP" { fields.get("ColorDepth").and_then(|v| v.parse().ok()) } else { None };
-                            let rdp_redirect_drives = fields.get("RedirectDiskDrive").map(|v| v == "true").unwrap_or(false);
-                            let rdp_redirect_printers = fields.get("RedirectPrinter").map(|v| v == "true").unwrap_or(false);
-                            let rdp_redirect_audio = fields.get("AudioRedirectionMode")
+                            let rdp_width = if proto == "RDP" {
+                                fields.get("ScreenWidth").and_then(|v| v.parse().ok())
+                            } else {
+                                None
+                            };
+                            let rdp_height = if proto == "RDP" {
+                                fields.get("ScreenHeight").and_then(|v| v.parse().ok())
+                            } else {
+                                None
+                            };
+                            let rdp_color_depth = if proto == "RDP" {
+                                fields.get("ColorDepth").and_then(|v| v.parse().ok())
+                            } else {
+                                None
+                            };
+                            let rdp_redirect_drives = fields
+                                .get("RedirectDiskDrive")
+                                .map(|v| v == "true")
+                                .unwrap_or(false);
+                            let rdp_redirect_printers = fields
+                                .get("RedirectPrinter")
+                                .map(|v| v == "true")
+                                .unwrap_or(false);
+                            let rdp_redirect_audio = fields
+                                .get("AudioRedirectionMode")
                                 .map(|v| v.to_ascii_lowercase().contains("redirect"))
                                 .unwrap_or(false);
                             result.push(ImportedConnection {
-                                name, host, port,
+                                name,
+                                host,
+                                port,
                                 protocol: proto.to_string(),
-                                username, password, domain, group_path,
-                                rdp_width, rdp_height, rdp_color_depth,
-                                rdp_redirect_drives, rdp_redirect_printers, rdp_redirect_audio,
+                                username,
+                                password,
+                                domain,
+                                group_path,
+                                rdp_width,
+                                rdp_height,
+                                rdp_color_depth,
+                                rdp_redirect_drives,
+                                rdp_redirect_printers,
+                                rdp_redirect_audio,
                                 ssh_key_path: None,
                                 source: "rdm".to_string(),
                                 warning: None,
@@ -756,8 +828,7 @@ fn parse_rdm_xml(content: &str) -> Result<Vec<ImportedConnection>, String> {
 
 #[tauri::command]
 pub async fn import_rdm(path: String) -> Result<Vec<ImportedConnection>, String> {
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Cannot read file: {}", e))?;
+    let content = std::fs::read_to_string(&path).map_err(|e| format!("Cannot read file: {}", e))?;
     let list = parse_rdm_xml(&content)?;
     if list.is_empty() {
         Err("No importable connections found (RDP, SSH, VNC, SFTP, FTP only).".to_string())
@@ -786,15 +857,15 @@ pub async fn import_rdm(path: String) -> Result<Vec<ImportedConnection>, String>
 //   RoyalFTPConnection (FTP 21).
 
 const ROYALTS_CONN_TYPES: &[(&str, &str, i32)] = &[
-    ("RoyalRDSConnection",  "RDP",  3389),
-    ("RoyalSSHConnection",  "SSH",  22),
-    ("RoyalVNCConnection",  "VNC",  5900),
+    ("RoyalRDSConnection", "RDP", 3389),
+    ("RoyalSSHConnection", "SSH", 22),
+    ("RoyalVNCConnection", "VNC", 5900),
     ("RoyalSFTPConnection", "SFTP", 22),
-    ("RoyalFTPConnection",  "FTP",  21),
+    ("RoyalFTPConnection", "FTP", 21),
 ];
 
 fn parse_royalts_xml(content: &str) -> Result<Vec<ImportedConnection>, String> {
-    use quick_xml::{Reader, events::Event};
+    use quick_xml::{events::Event, Reader};
     use std::collections::HashMap;
 
     let mut reader = Reader::from_str(content);
@@ -822,7 +893,9 @@ fn parse_royalts_xml(content: &str) -> Result<Vec<ImportedConnection>, String> {
             Ok(Event::Start(ref e)) => {
                 let qname = e.name();
                 let local = qname.local_name();
-                let tag = std::str::from_utf8(local.as_ref()).unwrap_or("").to_string();
+                let tag = std::str::from_utf8(local.as_ref())
+                    .unwrap_or("")
+                    .to_string();
                 doc_depth += 1;
                 tag_stack.push(tag.clone());
 
@@ -873,40 +946,55 @@ fn parse_royalts_xml(content: &str) -> Result<Vec<ImportedConnection>, String> {
             Ok(Event::End(ref e)) => {
                 let qname = e.name();
                 let local = qname.local_name();
-                let tag = std::str::from_utf8(local.as_ref()).unwrap_or("").to_string();
+                let tag = std::str::from_utf8(local.as_ref())
+                    .unwrap_or("")
+                    .to_string();
 
                 if let Some((ref ct, proto, def_port)) = in_conn.clone() {
                     if tag == ct.as_str() && doc_depth == conn_depth {
                         // Emit the connection we've been accumulating.
-                        let host = fields.get("URI")
+                        let host = fields
+                            .get("URI")
                             .or_else(|| fields.get("HostName"))
                             .or_else(|| fields.get("Host"))
                             .cloned()
                             .unwrap_or_default();
                         if !host.is_empty() {
                             let name = fields.get("Name").cloned().unwrap_or_else(|| host.clone());
-                            let port = fields.get("CustomPort")
+                            let port = fields
+                                .get("CustomPort")
                                 .or_else(|| fields.get("Port"))
                                 .and_then(|p| p.parse().ok())
                                 .unwrap_or(def_port);
-                            let username = fields.get("Username")
+                            let username = fields
+                                .get("Username")
                                 .or_else(|| fields.get("UserName"))
                                 .cloned()
                                 .unwrap_or_default();
                             let domain = fields.get("Domain").filter(|s| !s.is_empty()).cloned();
-                            let password = fields.get("Password").filter(|s| !s.is_empty()).cloned();
+                            let password =
+                                fields.get("Password").filter(|s| !s.is_empty()).cloned();
                             let group_path = {
                                 let non_empty: Vec<&str> = folder_names
                                     .iter()
                                     .filter(|n| !n.is_empty())
                                     .map(String::as_str)
                                     .collect();
-                                if non_empty.is_empty() { None } else { Some(non_empty.join("/")) }
+                                if non_empty.is_empty() {
+                                    None
+                                } else {
+                                    Some(non_empty.join("/"))
+                                }
                             };
                             result.push(ImportedConnection {
-                                name, host, port,
+                                name,
+                                host,
+                                port,
                                 protocol: proto.to_string(),
-                                username, password, domain, group_path,
+                                username,
+                                password,
+                                domain,
+                                group_path,
                                 source: "royalts".to_string(),
                                 ..Default::default()
                             });
@@ -944,12 +1032,14 @@ pub async fn import_royalts(path: String) -> Result<Vec<ImportedConnection>, Str
     let content: String = if bytes.starts_with(b"PK\x03\x04") {
         use std::io::Read as _;
         let cursor = std::io::Cursor::new(&bytes);
-        let mut archive = zip::ZipArchive::new(cursor)
-            .map_err(|e| format!("ZIP open error: {}", e))?;
+        let mut archive =
+            zip::ZipArchive::new(cursor).map_err(|e| format!("ZIP open error: {}", e))?;
         let mut xml_content = String::new();
         let mut found = false;
         for i in 0..archive.len() {
-            let mut file = archive.by_index(i).map_err(|e| format!("ZIP entry error: {}", e))?;
+            let mut file = archive
+                .by_index(i)
+                .map_err(|e| format!("ZIP entry error: {}", e))?;
             let name = file.name().to_lowercase();
             if name.ends_with(".rtsx") || name.ends_with(".xml") {
                 file.read_to_string(&mut xml_content)
@@ -977,10 +1067,7 @@ pub async fn import_royalts(path: String) -> Result<Vec<ImportedConnection>, Str
 // ── Bulk import ───────────────────────────────────────────────────────────────
 
 /// Resolve or create a slash-delimited group hierarchy, returning the leaf group id.
-fn find_or_create_group_path(
-    db: &rusqlite::Connection,
-    path: &str,
-) -> Result<String, String> {
+fn find_or_create_group_path(db: &rusqlite::Connection, path: &str) -> Result<String, String> {
     let segments: Vec<&str> = path
         .split('/')
         .map(|s| s.trim())
@@ -1009,11 +1096,7 @@ fn find_or_create_group_path(
         parent_id = Some(if let Some(id) = existing {
             id
         } else {
-            let group = crate::database::groups::create_group(
-                db,
-                segment,
-                parent_id.as_deref(),
-            )?;
+            let group = crate::database::groups::create_group(db, segment, parent_id.as_deref())?;
             group.id
         });
     }
@@ -1026,7 +1109,10 @@ pub async fn bulk_import_connections(
     state: State<'_, AppState>,
     connections: Vec<ImportedConnection>,
 ) -> Result<usize, String> {
-    let db = state.db.get().map_err(|e| format!("DB pool error: {}", e))?;
+    let db = state
+        .db
+        .get()
+        .map_err(|e| format!("DB pool error: {}", e))?;
 
     let mut count = 0usize;
 
@@ -1047,10 +1133,7 @@ pub async fn bulk_import_connections(
             if pt.is_empty() {
                 None
             } else {
-                let key_guard = state
-                    .encryption_key
-                    .read()
-                    .map_err(|_| "Lock poisoned")?;
+                let key_guard = state.encryption_key.read().map_err(|_| "Lock poisoned")?;
                 let key = key_guard.as_ref().ok_or("Vault is locked")?;
                 Some(
                     crate::encryption::encrypt_v2(pt, key)
@@ -1231,7 +1314,10 @@ mod tests {
         let list = parse_ssh_config_content(cfg);
         assert_eq!(list.len(), 1);
         let h = &list[0];
-        assert!(h.ssh_key_path.is_some(), "IdentityFile must populate ssh_key_path");
+        assert!(
+            h.ssh_key_path.is_some(),
+            "IdentityFile must populate ssh_key_path"
+        );
         assert!(
             h.warning.is_some(),
             "IdentityFile should produce a warning about manual key import"
@@ -1240,7 +1326,8 @@ mod tests {
 
     #[test]
     fn ssh_config_comments_and_blanks_ignored() {
-        let cfg = "\n# This is a comment\n\nHost srv\n    # another comment\n    HostName 10.0.0.2\n";
+        let cfg =
+            "\n# This is a comment\n\nHost srv\n    # another comment\n    HostName 10.0.0.2\n";
         let list = parse_ssh_config_content(cfg);
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].host, "10.0.0.2");
@@ -1281,7 +1368,11 @@ mod tests {
         assert_eq!(c.protocol, "RDP");
         assert_eq!(c.username, "admin");
         assert_eq!(c.domain.as_deref(), Some("CORP"));
-        assert_eq!(c.group_path.as_deref(), Some("Production/Web"), "backslash must become forward-slash");
+        assert_eq!(
+            c.group_path.as_deref(),
+            Some("Production/Web"),
+            "backslash must become forward-slash"
+        );
         assert_eq!(c.rdp_width, Some(1920));
         assert_eq!(c.rdp_height, Some(1080));
         assert_eq!(c.rdp_color_depth, Some(32));
@@ -1453,7 +1544,10 @@ mod tests {
         let list = parse_royalts_xml(xml).unwrap();
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].group_path.as_deref(), Some("Group1"));
-        assert!(list[1].group_path.is_none(), "connection outside folder must have no group");
+        assert!(
+            list[1].group_path.is_none(),
+            "connection outside folder must have no group"
+        );
     }
 
     // ── PuTTY URL-decode ──────────────────────────────────────────────────────

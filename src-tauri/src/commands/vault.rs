@@ -1,8 +1,8 @@
-use crate::state::AppState;
-use crate::error::AppError;
-use crate::{lock_err, current_unix_secs, touch_activity};
-use crate::encryption;
 use crate::database;
+use crate::encryption;
+use crate::error::AppError;
+use crate::state::AppState;
+use crate::{current_unix_secs, lock_err, touch_activity};
 use serde::{Deserialize, Serialize};
 
 // ── M-5: escalating, persistent unlock lockout ────────────────────────────
@@ -32,7 +32,9 @@ pub(crate) fn load_lockout_count(data_dir: &str) -> u32 {
 
 fn save_lockout_count(data_dir: &str, count: u32) {
     let path = lockout_path(data_dir);
-    let state = LockoutState { consecutive_lockouts: count };
+    let state = LockoutState {
+        consecutive_lockouts: count,
+    };
     if let Ok(json) = serde_json::to_string(&state) {
         if let Err(e) = std::fs::write(&path, json) {
             tracing::warn!("Failed to persist lockout state to {:?}: {}", path, e);
@@ -48,13 +50,13 @@ fn save_lockout_count(data_dir: &str, count: u32) {
 
 fn lockout_duration_secs(consecutive_lockouts: u32) -> u64 {
     match consecutive_lockouts {
-        0 | 1 => 30,    // first lockout
-        2     => 60,    // 1 m
-        3     => 120,   // 2 m
-        4     => 300,   // 5 m
-        5     => 600,   // 10 m
-        6     => 1800,  // 30 m
-        _     => 3600,  // 1 h cap
+        0 | 1 => 30, // first lockout
+        2 => 60,     // 1 m
+        3 => 120,    // 2 m
+        4 => 300,    // 5 m
+        5 => 600,    // 10 m
+        6 => 1800,   // 30 m
+        _ => 3600,   // 1 h cap
     }
 }
 
@@ -71,10 +73,12 @@ fn write_config_atomic(config_path: &str, value: &serde_json::Value) -> Result<(
     let json = serde_json::to_string_pretty(value)
         .map_err(|e| AppError::Internal(format!("JSON serialization: {}", e)))?;
     let tmp_path = format!("{}.tmp", config_path);
-    std::fs::write(&tmp_path, &json)
-        .map_err(|e| AppError::Internal(format!("Failed to write temp config {}: {}", tmp_path, e)))?;
-    std::fs::rename(&tmp_path, config_path)
-        .map_err(|e| AppError::Internal(format!("Failed to atomically replace config.json: {}", e)))?;
+    std::fs::write(&tmp_path, &json).map_err(|e| {
+        AppError::Internal(format!("Failed to write temp config {}: {}", tmp_path, e))
+    })?;
+    std::fs::rename(&tmp_path, config_path).map_err(|e| {
+        AppError::Internal(format!("Failed to atomically replace config.json: {}", e))
+    })?;
     Ok(())
 }
 
@@ -111,7 +115,10 @@ pub struct VaultStatus {
 
 #[tauri::command]
 pub fn is_vault_unlocked(state: tauri::State<AppState>) -> VaultStatus {
-    let key_guard = state.encryption_key.read().unwrap_or_else(|e| e.into_inner());
+    let key_guard = state
+        .encryption_key
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
     VaultStatus {
         unlocked: key_guard.is_some(),
     }
@@ -121,7 +128,10 @@ pub fn is_vault_unlocked(state: tauri::State<AppState>) -> VaultStatus {
 /// the "Create master password" wizard or the "Unlock" screen.
 #[tauri::command]
 pub fn is_first_run(state: tauri::State<AppState>) -> bool {
-    let token_guard = state.verification_token.read().unwrap_or_else(|e| e.into_inner());
+    let token_guard = state
+        .verification_token
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
     token_guard.is_none()
 }
 
@@ -143,14 +153,12 @@ pub fn set_master_password(
 
     // ── Guard: prevent destructive re-init of an already-configured vault ──
     {
-        let token_guard = state
-            .verification_token
-            .read()
-            .map_err(|e| lock_err(e))?;
+        let token_guard = state.verification_token.read().map_err(|e| lock_err(e))?;
         if token_guard.is_some() {
             tracing::warn!("set_master_password rejected: vault already initialized");
             return Err(crate::error::AppError::Validation(
-                "Vault is already initialized. Use change_master_password to update it.".to_string(),
+                "Vault is already initialized. Use change_master_password to update it."
+                    .to_string(),
             ));
         }
     }
@@ -160,7 +168,11 @@ pub fn set_master_password(
 
     let salt = encryption::generate_salt();
     let secret_pwd = secrecy::SecretString::new(request.password);
-    let mut key = encryption::derive_key(secret_pwd.expose_secret(), &salt, encryption::DEFAULT_KDF_ITERATIONS);
+    let mut key = encryption::derive_key(
+        secret_pwd.expose_secret(),
+        &salt,
+        encryption::DEFAULT_KDF_ITERATIONS,
+    );
     let token = encryption::create_verification_token(&key)?;
 
     let config = serde_json::json!({
@@ -181,7 +193,10 @@ pub fn set_master_password(
     *state.verification_token.write().map_err(|e| lock_err(e))? = Some(token);
     *state.kdf_iterations.write().map_err(|e| lock_err(e))? = encryption::DEFAULT_KDF_ITERATIONS;
 
-    tracing::info!("Master password set (first run, {} PBKDF2 iterations)", encryption::DEFAULT_KDF_ITERATIONS);
+    tracing::info!(
+        "Master password set (first run, {} PBKDF2 iterations)",
+        encryption::DEFAULT_KDF_ITERATIONS
+    );
     touch_activity(&state);
 
     key.zeroize();
@@ -222,20 +237,11 @@ pub fn change_master_password(
 
     let salt = {
         let salt_guard = state.salt.read().map_err(|e| lock_err(e))?;
-        salt_guard
-            .as_ref()
-            .ok_or("Vault not configured")?
-            .clone()
+        salt_guard.as_ref().ok_or("Vault not configured")?.clone()
     };
     let token = {
-        let token_guard = state
-            .verification_token
-            .read()
-            .map_err(|e| lock_err(e))?;
-        token_guard
-            .as_ref()
-            .ok_or("Vault not initialized")?
-            .clone()
+        let token_guard = state.verification_token.read().map_err(|e| lock_err(e))?;
+        token_guard.as_ref().ok_or("Vault not initialized")?.clone()
     };
     let old_iters = *state.kdf_iterations.read().map_err(|e| lock_err(e))?;
 
@@ -249,14 +255,22 @@ pub fn change_master_password(
     }
 
     let new_salt = encryption::generate_salt();
-    let mut new_key = encryption::derive_key(secret_new.expose_secret(), &new_salt, encryption::DEFAULT_KDF_ITERATIONS);
+    let mut new_key = encryption::derive_key(
+        secret_new.expose_secret(),
+        &new_salt,
+        encryption::DEFAULT_KDF_ITERATIONS,
+    );
     let new_token = encryption::create_verification_token(&new_key)?;
 
     {
-        let db = state.db.get().map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
+        let db = state
+            .db
+            .get()
+            .map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
 
-        db.execute_batch("BEGIN IMMEDIATE")
-            .map_err(|e| crate::error::AppError::Internal(format!("Failed to begin re-key transaction: {}", e)))?;
+        db.execute_batch("BEGIN IMMEDIATE").map_err(|e| {
+            crate::error::AppError::Internal(format!("Failed to begin re-key transaction: {}", e))
+        })?;
 
         let re_key_result: Result<(), crate::error::AppError> = (|| {
             let connections = database::get_connections(&db)?;
@@ -320,8 +334,9 @@ pub fn change_master_password(
 
         match re_key_result {
             Ok(()) => {
-                db.execute_batch("COMMIT")
-                    .map_err(|e| crate::error::AppError::Internal(format!("Failed to commit re-key: {}", e)))?;
+                db.execute_batch("COMMIT").map_err(|e| {
+                    crate::error::AppError::Internal(format!("Failed to commit re-key: {}", e))
+                })?;
             }
             Err(e) => {
                 let _ = db.execute_batch("ROLLBACK");
@@ -344,17 +359,16 @@ pub fn change_master_password(
     // update would leave the DB encrypted with new_key but the file pointing
     // at old_salt (=> permanent data loss on restart).  Writing to .tmp then
     // renaming is crash-safe: either the old or the new file is intact.
-    write_config_atomic(&state.config_path, &config)
-        .map_err(|e| {
-            // Config write failed after DB was already committed.
-            // Log the critical situation; the vault is now inconsistent.
-            tracing::error!(
-                "CRITICAL: DB re-keyed but config.json write failed: {}. \
+    write_config_atomic(&state.config_path, &config).map_err(|e| {
+        // Config write failed after DB was already committed.
+        // Log the critical situation; the vault is now inconsistent.
+        tracing::error!(
+            "CRITICAL: DB re-keyed but config.json write failed: {}. \
                  The vault may be unrecoverable without manual intervention.",
-                e
-            );
             e
-        })?;
+        );
+        e
+    })?;
     restrict_config_perms(&state.config_path);
 
     *state.encryption_key.write().map_err(|e| lock_err(e))? = Some(new_key);
@@ -362,7 +376,10 @@ pub fn change_master_password(
     *state.verification_token.write().map_err(|e| lock_err(e))? = Some(new_token);
     *state.kdf_iterations.write().map_err(|e| lock_err(e))? = encryption::DEFAULT_KDF_ITERATIONS;
 
-    tracing::info!("Master password changed (re-keyed to {} PBKDF2 iterations)", encryption::DEFAULT_KDF_ITERATIONS);
+    tracing::info!(
+        "Master password changed (re-keyed to {} PBKDF2 iterations)",
+        encryption::DEFAULT_KDF_ITERATIONS
+    );
     touch_activity(&state);
 
     old_key.zeroize();
@@ -429,7 +446,10 @@ pub fn unlock_vault(
 
     let token = {
         let token_guard = state.verification_token.read().map_err(|e| lock_err(e))?;
-        token_guard.as_ref().ok_or("Verification token missing")?.clone()
+        token_guard
+            .as_ref()
+            .ok_or("Verification token missing")?
+            .clone()
     };
 
     if !encryption::verify_master_password(&token, &key) {
@@ -439,12 +459,15 @@ pub fn unlock_vault(
             // M-5: escalating, persistent lockout
             let new_lockout_count = state.unlock_lockout_count.fetch_add(1, Ordering::Relaxed) + 1;
             let delay = lockout_duration_secs(new_lockout_count);
-            state.unlock_lockout_until.store(current_unix_secs() + delay, Ordering::Relaxed);
+            state
+                .unlock_lockout_until
+                .store(current_unix_secs() + delay, Ordering::Relaxed);
             state.unlock_fail_count.store(0, Ordering::Relaxed);
             save_lockout_count(&state.data_dir, new_lockout_count);
             tracing::warn!(
                 "unlock_vault: 5 consecutive failures (lockout #{}) — locking out for {}s",
-                new_lockout_count, delay
+                new_lockout_count,
+                delay
             );
             return Err(crate::error::AppError::AuthFailed(format!(
                 "Too many failed attempts. Vault locked for {} seconds (lockout #{}).",
@@ -452,7 +475,9 @@ pub fn unlock_vault(
             )));
         }
         tracing::warn!("unlock_vault: wrong password (attempt {})", fails);
-        return Err(crate::error::AppError::AuthFailed("Wrong master password".to_string()));
+        return Err(crate::error::AppError::AuthFailed(
+            "Wrong master password".to_string(),
+        ));
     }
 
     // M-5: successful unlock → clear both counters and persist the reset
@@ -476,7 +501,10 @@ pub fn unlock_vault(
 pub fn lock_vault(app: tauri::AppHandle, state: tauri::State<AppState>) {
     use zeroize::Zeroize;
     {
-        let mut key_guard = state.encryption_key.write().unwrap_or_else(|e| e.into_inner());
+        let mut key_guard = state
+            .encryption_key
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(ref mut key) = *key_guard {
             key.zeroize();
         }
@@ -495,7 +523,8 @@ pub fn lock_vault(app: tauri::AppHandle, state: tauri::State<AppState>) {
 
     {
         if let Ok(db) = state.db.get() {
-            let _ = database::audit_log_insert(&db, "lock", "vault", "vault", "vault", "success", "");
+            let _ =
+                database::audit_log_insert(&db, "lock", "vault", "vault", "vault", "success", "");
         }
     }
     let _ = tauri::Emitter::emit(&app, "vault:locked", ());
@@ -519,11 +548,14 @@ pub fn set_allow_multiple_instances(
     allow: bool,
 ) -> Result<(), crate::error::AppError> {
     let config_str = std::fs::read_to_string(&state.config_path).unwrap_or_default();
-    let mut config: serde_json::Value = serde_json::from_str(&config_str)
-        .unwrap_or_else(|_| serde_json::json!({}));
+    let mut config: serde_json::Value =
+        serde_json::from_str(&config_str).unwrap_or_else(|_| serde_json::json!({}));
     config["allow_multiple_instances"] = serde_json::json!(allow);
     write_config_atomic(&state.config_path, &config)?;
-    tracing::info!("allow_multiple_instances set to {} (takes effect on next launch)", allow);
+    tracing::info!(
+        "allow_multiple_instances set to {} (takes effect on next launch)",
+        allow
+    );
     Ok(())
 }
 
@@ -537,8 +569,8 @@ pub fn set_auto_lock_timeout(
     // MED-A1: persist the setting so it survives a restart.
     // We merge it into the existing config.json (keeping salt, token, kdf intact).
     let config_str = std::fs::read_to_string(&state.config_path).unwrap_or_default();
-    let mut config: serde_json::Value = serde_json::from_str(&config_str)
-        .unwrap_or_else(|_| serde_json::json!({}));
+    let mut config: serde_json::Value =
+        serde_json::from_str(&config_str).unwrap_or_else(|_| serde_json::json!({}));
     config["auto_lock_secs"] = serde_json::json!(secs);
     // HIGH-A7: use atomic write here too for consistency
     if write_config_atomic(&state.config_path, &config).is_ok() {

@@ -2,11 +2,11 @@ use crate::error::AppError;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, OnceLock};
-use ts_rs::TS;
 use std::time::Duration;
 use tauri::Emitter;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::Mutex as TokioMutex;
+use ts_rs::TS;
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -73,18 +73,25 @@ fn read_docker_tls_files(
     cert_path: Option<&str>,
     key_path: Option<&str>,
 ) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), AppError> {
-    let ca = ca_path
-        .ok_or_else(|| AppError::Validation("Docker HTTPS transport requires a CA certificate path".to_string()))?;
-    let cert = cert_path
-        .ok_or_else(|| AppError::Validation("Docker HTTPS transport requires a client certificate path".to_string()))?;
-    let key = key_path
-        .ok_or_else(|| AppError::Validation("Docker HTTPS transport requires a client key path".to_string()))?;
+    let ca = ca_path.ok_or_else(|| {
+        AppError::Validation("Docker HTTPS transport requires a CA certificate path".to_string())
+    })?;
+    let cert = cert_path.ok_or_else(|| {
+        AppError::Validation(
+            "Docker HTTPS transport requires a client certificate path".to_string(),
+        )
+    })?;
+    let key = key_path.ok_or_else(|| {
+        AppError::Validation("Docker HTTPS transport requires a client key path".to_string())
+    })?;
     let ca_pem = std::fs::read(ca)
         .map_err(|e| AppError::Validation(format!("Cannot read Docker CA at {}: {}", ca, e)))?;
-    let cert_pem = std::fs::read(cert)
-        .map_err(|e| AppError::Validation(format!("Cannot read Docker client cert at {}: {}", cert, e)))?;
-    let key_pem = std::fs::read(key)
-        .map_err(|e| AppError::Validation(format!("Cannot read Docker client key at {}: {}", key, e)))?;
+    let cert_pem = std::fs::read(cert).map_err(|e| {
+        AppError::Validation(format!("Cannot read Docker client cert at {}: {}", cert, e))
+    })?;
+    let key_pem = std::fs::read(key).map_err(|e| {
+        AppError::Validation(format!("Cannot read Docker client key at {}: {}", key, e))
+    })?;
     Ok((ca_pem, cert_pem, key_pem))
 }
 
@@ -149,7 +156,11 @@ fn docker_http_client(
 }
 
 fn docker_url_for(transport: &str, host: &str, port: u16, path: &str) -> String {
-    let scheme = if transport == "https" { "https" } else { "http" };
+    let scheme = if transport == "https" {
+        "https"
+    } else {
+        "http"
+    };
     format!("{}://{}:{}{}", scheme, host, port, path)
 }
 
@@ -164,9 +175,12 @@ async fn docker_unix_request(
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixStream;
 
-    let mut stream = UnixStream::connect(socket_path)
-        .await
-        .map_err(|e| AppError::Network(format!("Docker socket connect failed ({}): {}", socket_path, e)))?;
+    let mut stream = UnixStream::connect(socket_path).await.map_err(|e| {
+        AppError::Network(format!(
+            "Docker socket connect failed ({}): {}",
+            socket_path, e
+        ))
+    })?;
 
     let body_str = body.unwrap_or("");
     let request = format!(
@@ -174,22 +188,37 @@ async fn docker_unix_request(
         method, api_path, body_str.len(), body_str
     );
 
-    stream.write_all(request.as_bytes()).await.map_err(|e| AppError::Network(format!("Socket write error: {}", e)))?;
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .map_err(|e| AppError::Network(format!("Socket write error: {}", e)))?;
     stream.flush().await.ok();
 
     let mut response = Vec::new();
-    stream.read_to_end(&mut response).await.map_err(|e| AppError::Network(format!("Socket read error: {}", e)))?;
+    stream
+        .read_to_end(&mut response)
+        .await
+        .map_err(|e| AppError::Network(format!("Socket read error: {}", e)))?;
 
     // Find header/body boundary
-    let split = response.windows(4).position(|w| w == b"\r\n\r\n").map(|p| p + 4).unwrap_or(response.len());
+    let split = response
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|p| p + 4)
+        .unwrap_or(response.len());
     let header = String::from_utf8_lossy(&response[..split]).to_string();
-    let status = header.lines().next()
+    let status = header
+        .lines()
+        .next()
         .and_then(|l| l.split_whitespace().nth(1))
         .and_then(|s| s.parse::<u16>().ok())
         .unwrap_or(0);
 
     // Unchunk if Transfer-Encoding: chunked
-    let body_bytes = if header.to_ascii_lowercase().contains("transfer-encoding: chunked") {
+    let body_bytes = if header
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked")
+    {
         unchunk_bytes(&response[split..])
     } else {
         response[split..].to_vec()
@@ -204,11 +233,19 @@ fn unchunk_bytes(data: &[u8]) -> Vec<u8> {
     let mut pos = 0;
     while pos < data.len() {
         // Find end of chunk size line
-        let Some(lf) = data[pos..].iter().position(|&b| b == b'\n') else { break };
-        let size_line = String::from_utf8_lossy(&data[pos..pos + lf]).trim().trim_end_matches('\r').to_string();
-        let chunk_size = usize::from_str_radix(&size_line.split(';').next().unwrap_or("0"), 16).unwrap_or(0);
+        let Some(lf) = data[pos..].iter().position(|&b| b == b'\n') else {
+            break;
+        };
+        let size_line = String::from_utf8_lossy(&data[pos..pos + lf])
+            .trim()
+            .trim_end_matches('\r')
+            .to_string();
+        let chunk_size =
+            usize::from_str_radix(&size_line.split(';').next().unwrap_or("0"), 16).unwrap_or(0);
         pos += lf + 1;
-        if chunk_size == 0 { break; }
+        if chunk_size == 0 {
+            break;
+        }
         if pos + chunk_size > data.len() {
             result.extend_from_slice(&data[pos..]);
             break;
@@ -238,12 +275,9 @@ fn parse_docker_logs(data: &[u8]) -> Option<String> {
     let mut pos = 0;
     while pos + 8 <= data.len() {
         let st = data[pos];
-        let length = u32::from_be_bytes([
-            data[pos + 4],
-            data[pos + 5],
-            data[pos + 6],
-            data[pos + 7],
-        ]) as usize;
+        let length =
+            u32::from_be_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]])
+                as usize;
         pos += 8;
         if pos + length > data.len() {
             break;
@@ -275,18 +309,24 @@ pub async fn docker_get_containers(
     if use_socket {
         return Err(AppError::Validation(
             "Unix socket transport is not supported on Windows. \
-             Please use TCP transport instead.".to_string()
+             Please use TCP transport instead."
+                .to_string(),
         ));
     }
 
     #[cfg(unix)]
     if use_socket {
         let sock = _socket_path.as_deref().unwrap_or("/var/run/docker.sock");
-        let (status, body) = docker_unix_request(sock, "GET", "/containers/json?all=1", None).await?;
+        let (status, body) =
+            docker_unix_request(sock, "GET", "/containers/json?all=1", None).await?;
         if status == 0 || status >= 400 {
-            return Err(AppError::Network(format!("Docker socket request failed ({})", status)));
+            return Err(AppError::Network(format!(
+                "Docker socket request failed ({})",
+                status
+            )));
         }
-        return serde_json::from_slice(&body).map_err(|e| AppError::Internal(format!("Parse error: {}", e)));
+        return serde_json::from_slice(&body)
+            .map_err(|e| AppError::Internal(format!("Parse error: {}", e)));
     }
 
     let client = docker_http_client(
@@ -296,12 +336,20 @@ pub async fn docker_get_containers(
         tls_key_path.as_deref(),
     )?;
     let url = docker_url_for(transport_str, &host, port, "/containers/json?all=1");
-    let res = client.get(&url).send().await
+    let res = client
+        .get(&url)
+        .send()
+        .await
         .map_err(|e| AppError::Network(format!("Request failed: {}", e)))?;
     if !res.status().is_success() {
-        return Err(AppError::Network(format!("Failed to fetch containers. Status: {}", res.status())));
+        return Err(AppError::Network(format!(
+            "Failed to fetch containers. Status: {}",
+            res.status()
+        )));
     }
-    res.json().await.map_err(|e| AppError::Internal(format!("Parse error: {}", e)))
+    res.json()
+        .await
+        .map_err(|e| AppError::Internal(format!("Parse error: {}", e)))
 }
 
 #[tauri::command]
@@ -328,7 +376,8 @@ pub async fn docker_container_action(
     if use_socket {
         return Err(AppError::Validation(
             "Unix socket transport is not supported on Windows. \
-             Please use TCP transport instead.".to_string()
+             Please use TCP transport instead."
+                .to_string(),
         ));
     }
 
@@ -338,7 +387,10 @@ pub async fn docker_container_action(
         let api_path = format!("/containers/{}/{}", container_id, action);
         let (status, _) = docker_unix_request(sock, "POST", &api_path, Some("{}")).await?;
         if status >= 400 {
-            return Err(AppError::Network(format!("Action failed on socket ({})", status)));
+            return Err(AppError::Network(format!(
+                "Action failed on socket ({})",
+                status
+            )));
         }
         return Ok("Action initiated successfully".to_string());
     }
@@ -349,13 +401,24 @@ pub async fn docker_container_action(
         tls_cert_path.as_deref(),
         tls_key_path.as_deref(),
     )?;
-    let url = docker_url_for(transport_str, &host, port, &format!("/containers/{}/{}", container_id, action));
-    let res = client.post(&url).send().await
+    let url = docker_url_for(
+        transport_str,
+        &host,
+        port,
+        &format!("/containers/{}/{}", container_id, action),
+    );
+    let res = client
+        .post(&url)
+        .send()
+        .await
         .map_err(|e| AppError::Network(format!("Request failed: {}", e)))?;
     if !res.status().is_success() {
         let status = res.status();
         let err_text = res.text().await.unwrap_or_default();
-        return Err(AppError::Network(format!("Action failed. Status: {} - {}", status, err_text)));
+        return Err(AppError::Network(format!(
+            "Action failed. Status: {} - {}",
+            status, err_text
+        )));
     }
     Ok("Action initiated successfully".to_string())
 }
@@ -373,7 +436,10 @@ pub async fn docker_get_logs(
     tls_key_path: Option<String>,
 ) -> Result<String, AppError> {
     let tail_n = tail.unwrap_or(300);
-    let api_path = format!("/containers/{}/logs?stdout=1&stderr=1&tail={}", container_id, tail_n);
+    let api_path = format!(
+        "/containers/{}/logs?stdout=1&stderr=1&tail={}",
+        container_id, tail_n
+    );
     let transport_str = transport.as_deref().unwrap_or("tcp");
     let use_socket = transport_str == "socket";
 
@@ -381,7 +447,8 @@ pub async fn docker_get_logs(
     if use_socket {
         return Err(AppError::Validation(
             "Unix socket transport is not supported on Windows. \
-             Please use TCP transport instead.".to_string()
+             Please use TCP transport instead."
+                .to_string(),
         ));
     }
 
@@ -390,9 +457,14 @@ pub async fn docker_get_logs(
         let sock = _socket_path.as_deref().unwrap_or("/var/run/docker.sock");
         let (status, body) = docker_unix_request(sock, "GET", &api_path, None).await?;
         if status >= 400 {
-            return Err(AppError::Network(format!("Logs request failed ({})", status)));
+            return Err(AppError::Network(format!(
+                "Logs request failed ({})",
+                status
+            )));
         }
-        return Ok(parse_docker_logs(&body).unwrap_or_else(|| String::from_utf8_lossy(&body).to_string()));
+        return Ok(
+            parse_docker_logs(&body).unwrap_or_else(|| String::from_utf8_lossy(&body).to_string())
+        );
     }
 
     let client = docker_http_client(
@@ -402,13 +474,27 @@ pub async fn docker_get_logs(
         tls_key_path.as_deref(),
     )?;
     let url = docker_url_for(transport_str, &host, port, &api_path);
-    tracing::debug!("Docker logs: container={} tail={} transport={}", container_id, tail_n, transport_str);
-    let res = client.get(&url).send().await
+    tracing::debug!(
+        "Docker logs: container={} tail={} transport={}",
+        container_id,
+        tail_n,
+        transport_str
+    );
+    let res = client
+        .get(&url)
+        .send()
+        .await
         .map_err(|e| AppError::Network(format!("Request failed: {}", e)))?;
     if !res.status().is_success() {
-        return Err(AppError::Network(format!("Failed to fetch logs. Status: {}", res.status())));
+        return Err(AppError::Network(format!(
+            "Failed to fetch logs. Status: {}",
+            res.status()
+        )));
     }
-    let bytes = res.bytes().await.map_err(|e| AppError::Internal(format!("Failed to read response: {}", e)))?;
+    let bytes = res
+        .bytes()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to read response: {}", e)))?;
     Ok(parse_docker_logs(&bytes).unwrap_or_else(|| String::from_utf8_lossy(&bytes).to_string()))
 }
 
@@ -434,7 +520,9 @@ pub async fn docker_exec_start(
 
     tracing::info!(
         "Docker exec start: container={} session={} transport={}",
-        container_id, session_id, transport_str
+        container_id,
+        session_id,
+        transport_str
     );
 
     // Step 1: Create exec instance over HTTP(S)
@@ -445,7 +533,9 @@ pub async fn docker_exec_start(
         tls_key_path.as_deref(),
     )?;
     let create_url = docker_url_for(
-        &transport_str, &host, port,
+        &transport_str,
+        &host,
+        port,
         &format!("/containers/{}/exec", container_id),
     );
     let create_body = serde_json::json!({
@@ -469,7 +559,10 @@ pub async fn docker_exec_start(
     if !create_res.status().is_success() {
         let status = create_res.status();
         let body = create_res.text().await.unwrap_or_default();
-        return Err(AppError::Network(format!("Exec create failed ({}): {}", status, body)));
+        return Err(AppError::Network(format!(
+            "Exec create failed ({}): {}",
+            status, body
+        )));
     }
 
     let create_data: serde_json::Value = create_res
@@ -494,7 +587,11 @@ pub async fn docker_exec_start(
          Upgrade: tcp\r\n\
          \r\n\
          {}",
-        exec_id, host, port, start_body.len(), start_body
+        exec_id,
+        host,
+        port,
+        start_body.len(),
+        start_body
     );
 
     let tcp = TcpStream::connect(format!("{}:{}", host, port))
@@ -541,7 +638,9 @@ pub async fn docker_exec_start(
             break;
         }
         if header_buf.len() > 8192 {
-            return Err(AppError::Internal("HTTP response header too large".to_string()));
+            return Err(AppError::Internal(
+                "HTTP response header too large".to_string(),
+            ));
         }
     }
 
@@ -628,7 +727,7 @@ pub async fn docker_exec_input(
         .get(&session_id)
         .ok_or_else(|| AppError::NotFound(format!("Exec session '{}' not found", session_id)))?
         .writer
-        .clone();   // Arc clone — DashMap Ref is dropped here
+        .clone(); // Arc clone — DashMap Ref is dropped here
 
     let mut guard = writer.lock().await;
     if let Some(ref mut w) = *guard {
@@ -660,7 +759,8 @@ pub async fn docker_exec_resize(
     )?;
     let url = docker_url_for(
         transport_str,
-        &host, port,
+        &host,
+        port,
         &format!("/exec/{}/resize?h={}&w={}", exec_id, rows, cols),
     );
     client

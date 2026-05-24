@@ -1,7 +1,7 @@
-use crate::error::AppError;
-use crate::state::AppState;
 use crate::commands::credentials::resolve_credentials_internal;
+use crate::error::AppError;
 use crate::lock_err;
+use crate::state::AppState;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use reqwest::{Client, Response};
 use serde::{Deserialize, Serialize};
@@ -146,7 +146,11 @@ fn build_pinned_client(host: &str, port: u16, data_dir: &str) -> Result<Client, 
                 },
             );
             save_cert_store(data_dir, &store)?;
-            tracing::info!("Proxmox TOFU: pinned new certificate for {} ({})", id, fingerprint);
+            tracing::info!(
+                "Proxmox TOFU: pinned new certificate for {} ({})",
+                id,
+                fingerprint
+            );
         }
         Some(entry) if entry.fingerprint_sha256 == fingerprint => {
             tracing::debug!("Proxmox: certificate for {} matches pinned fingerprint", id);
@@ -154,7 +158,9 @@ fn build_pinned_client(host: &str, port: u16, data_dir: &str) -> Result<Client, 
         Some(entry) => {
             tracing::error!(
                 "Proxmox: certificate MISMATCH for {} — pinned {}, server presents {}",
-                id, entry.fingerprint_sha256, fingerprint
+                id,
+                entry.fingerprint_sha256,
+                fingerprint
             );
             // Validation → errorMapper forwards the full message to the user verbatim.
             return Err(AppError::Validation(format!(
@@ -194,10 +200,7 @@ async fn pinned_client(host: &str, port: u16, data_dir: &str) -> Result<Client, 
 // MED-A14: retry helper — retries on 5xx / timeout / connection-refused up to
 // `max_attempts` times with truncated-exponential jitter.  4xx errors are NOT
 // retried (bad request / auth failure → no point in retrying).
-async fn with_retry<F, Fut>(
-    max_attempts: u32,
-    mut f: F,
-) -> Result<Response, AppError>
+async fn with_retry<F, Fut>(max_attempts: u32, mut f: F) -> Result<Response, AppError>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<Response, AppError>>,
@@ -213,7 +216,10 @@ where
                 let backoff = Duration::from_millis(500u64 * (1 << (attempt - 1)) + jitter_ms);
                 tracing::warn!(
                     "Proxmox API returned {}; retrying in {}ms (attempt {}/{})",
-                    res.status(), backoff.as_millis(), attempt, max_attempts
+                    res.status(),
+                    backoff.as_millis(),
+                    attempt,
+                    max_attempts
                 );
                 tokio::time::sleep(backoff).await;
             }
@@ -224,7 +230,10 @@ where
                 let backoff = Duration::from_millis(500u64 * (1 << (attempt - 1)) + jitter_ms);
                 tracing::warn!(
                     "Proxmox API network error: {}; retrying in {}ms (attempt {}/{})",
-                    e, backoff.as_millis(), attempt, max_attempts
+                    e,
+                    backoff.as_millis(),
+                    attempt,
+                    max_attempts
                 );
                 tokio::time::sleep(backoff).await;
             }
@@ -240,9 +249,14 @@ pub async fn proxmox_auth(
     state: tauri::State<'_, AppState>,
     connection_id: String,
 ) -> Result<ProxmoxAuthResponse, AppError> {
-    let conn = state.db.get().map_err(|e| AppError::Internal(format!("DB pool: {}", e)))?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::Internal(format!("DB pool: {}", e)))?;
     let all = crate::database::get_connections(&conn)?;
-    let connection = all.into_iter().find(|c| c.id == connection_id)
+    let connection = all
+        .into_iter()
+        .find(|c| c.id == connection_id)
         .ok_or_else(|| AppError::Internal("Connection not found".to_string()))?;
 
     let host = connection.host.clone();
@@ -251,7 +265,9 @@ pub async fn proxmox_auth(
     // Copy key out of the RwLockReadGuard so no non-Send guard crosses the await.
     let master_key: [u8; 32] = {
         let key_guard = state.encryption_key.read().map_err(|e| lock_err(e))?;
-        *key_guard.as_ref().ok_or_else(|| AppError::AuthFailed("Vault locked".to_string()))?
+        *key_guard
+            .as_ref()
+            .ok_or_else(|| AppError::AuthFailed("Vault locked".to_string()))?
     };
     let creds = resolve_credentials_internal(&conn, &master_key, &connection_id)?;
     drop(conn);
@@ -275,10 +291,14 @@ pub async fn proxmox_auth(
                 .await
                 .map_err(|e| AppError::Network(format!("Request failed: {}", e)))
         }
-    }).await?;
+    })
+    .await?;
 
     if !res.status().is_success() {
-        return Err(AppError::AuthFailed(format!("Authentication failed. Status: {}", res.status())));
+        return Err(AppError::AuthFailed(format!(
+            "Authentication failed. Status: {}",
+            res.status()
+        )));
     }
 
     let auth_data: ProxmoxAuthData = res
@@ -297,7 +317,10 @@ pub async fn proxmox_get_resources(
     ticket: String,
 ) -> Result<Vec<ProxmoxResource>, AppError> {
     let client = pinned_client(&host, port, &state.data_dir).await?;
-    let url = format!("https://{}:{}/api2/json/cluster/resources?type=vm", host, port);
+    let url = format!(
+        "https://{}:{}/api2/json/cluster/resources?type=vm",
+        host, port
+    );
 
     let res: Response = client
         .get(&url)
@@ -307,7 +330,10 @@ pub async fn proxmox_get_resources(
         .map_err(|e| AppError::Network(format!("Request failed: {}", e)))?;
 
     if !res.status().is_success() {
-        return Err(AppError::Network(format!("Failed to fetch resources. Status: {}", res.status())));
+        return Err(AppError::Network(format!(
+            "Failed to fetch resources. Status: {}",
+            res.status()
+        )));
     }
 
     let res_data: ProxmoxResourceData = res
@@ -333,7 +359,10 @@ pub async fn proxmox_vm_action(
     // Validate the action to prevent injection into the URL
     let allowed = ["start", "stop", "shutdown", "reboot", "suspend", "resume"];
     if !allowed.contains(&action.as_str()) {
-        return Err(AppError::Validation(format!("Action not allowed: '{}'", action)));
+        return Err(AppError::Validation(format!(
+            "Action not allowed: '{}'",
+            action
+        )));
     }
 
     let client = pinned_client(&host, port, &state.data_dir).await?;
@@ -353,7 +382,10 @@ pub async fn proxmox_vm_action(
     let status = res.status();
     if !status.is_success() {
         let err_text = res.text().await.unwrap_or_default();
-        return Err(AppError::Network(format!("Action failed. Status: {} — {}", status, err_text)));
+        return Err(AppError::Network(format!(
+            "Action failed. Status: {} — {}",
+            status, err_text
+        )));
     }
 
     Ok("Action started successfully".to_string())
@@ -370,22 +402,33 @@ pub async fn proxmox_auth_token(
     state: tauri::State<'_, AppState>,
     connection_id: String,
 ) -> Result<Vec<ProxmoxResource>, AppError> {
-    let conn = state.db.get().map_err(|e| AppError::Internal(format!("DB pool: {}", e)))?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::Internal(format!("DB pool: {}", e)))?;
     let all = crate::database::get_connections(&conn)?;
-    let connection = all.into_iter().find(|c| c.id == connection_id)
+    let connection = all
+        .into_iter()
+        .find(|c| c.id == connection_id)
         .ok_or_else(|| AppError::Internal("Connection not found".to_string()))?;
 
     let host = connection.host.clone();
     let port = connection.port as u16;
-    let token_id = connection.proxmox_api_token_id.clone()
+    let token_id = connection
+        .proxmox_api_token_id
+        .clone()
         .ok_or_else(|| AppError::Internal("No API token ID on connection".to_string()))?;
-    let token_secret_enc = connection.proxmox_api_token_secret_encrypted.clone()
+    let token_secret_enc = connection
+        .proxmox_api_token_secret_encrypted
+        .clone()
         .ok_or_else(|| AppError::Internal("No API token secret on connection".to_string()))?;
 
     // Copy key out of the RwLockReadGuard so no non-Send guard crosses the await.
     let master_key: [u8; 32] = {
         let key_guard = state.encryption_key.read().map_err(|e| lock_err(e))?;
-        *key_guard.as_ref().ok_or_else(|| AppError::AuthFailed("Vault locked".to_string()))?
+        *key_guard
+            .as_ref()
+            .ok_or_else(|| AppError::AuthFailed("Vault locked".to_string()))?
     };
     let token_secret = crate::encryption::decrypt_auto(&token_secret_enc, &master_key)
         .map_err(|e| AppError::AuthFailed(format!("Decrypt API token: {}", e)))?;
@@ -393,7 +436,10 @@ pub async fn proxmox_auth_token(
 
     let auth_header = format!("PVEAPIToken={}={}", token_id, token_secret);
     let client = pinned_client(&host, port, &state.data_dir).await?;
-    let url = format!("https://{}:{}/api2/json/cluster/resources?type=vm", host, port);
+    let url = format!(
+        "https://{}:{}/api2/json/cluster/resources?type=vm",
+        host, port
+    );
 
     // MED-A14: retry up to 3× on 5xx / network errors
     let res: Response = with_retry(3, || {
@@ -407,13 +453,19 @@ pub async fn proxmox_auth_token(
                 .await
                 .map_err(|e| AppError::Network(format!("Request failed: {}", e)))
         }
-    }).await?;
+    })
+    .await?;
 
     if !res.status().is_success() {
-        return Err(AppError::AuthFailed(format!("API token auth failed. Status: {}", res.status())));
+        return Err(AppError::AuthFailed(format!(
+            "API token auth failed. Status: {}",
+            res.status()
+        )));
     }
 
-    let res_data: ProxmoxResourceData = res.json().await
+    let res_data: ProxmoxResourceData = res
+        .json()
+        .await
         .map_err(|e| AppError::Internal(format!("Parse error: {}", e)))?;
 
     Ok(res_data.data)
@@ -424,10 +476,9 @@ pub async fn proxmox_auth_token(
 // `build_pinned_client` on every authenticated request.
 #[tauri::command]
 pub async fn proxmox_get_fingerprint(host: String, port: u16) -> Result<String, AppError> {
-    let (fingerprint, _der) =
-        tokio::task::spawn_blocking(move || peek_proxmox_cert(&host, port))
-            .await
-            .map_err(|e| AppError::Internal(format!("Cert-peek task join error: {}", e)))??;
+    let (fingerprint, _der) = tokio::task::spawn_blocking(move || peek_proxmox_cert(&host, port))
+        .await
+        .map_err(|e| AppError::Internal(format!("Cert-peek task join error: {}", e)))??;
     Ok(fingerprint)
 }
 
@@ -467,7 +518,10 @@ pub fn proxmox_forget_cert(
 ) -> Result<(), AppError> {
     let mut store = load_cert_store(&state.data_dir);
     if store.hosts.remove(&host_key).is_none() {
-        return Err(AppError::NotFound(format!("No pinned cert for '{}'", host_key)));
+        return Err(AppError::NotFound(format!(
+            "No pinned cert for '{}'",
+            host_key
+        )));
     }
     save_cert_store(&state.data_dir, &store)?;
     tracing::info!("Proxmox TOFU: forgot pinned cert for '{}'", host_key);
@@ -512,7 +566,7 @@ pub fn proxmox_open_console(
     title: String,
     ticket: String,
 ) -> Result<(), AppError> {
-    use tauri::{WebviewUrl, WebviewWindowBuilder, Manager};
+    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
     // ── 1. Sanitize ticket ────────────────────────────────────────────────────
     validate_proxmox_ticket(&ticket)?;
@@ -637,6 +691,9 @@ mod tests {
     #[test]
     fn ticket_2048_bytes_accepted() {
         let max = "A".repeat(2048);
-        assert!(validate_proxmox_ticket(&max).is_ok(), "2048 bytes is within the limit");
+        assert!(
+            validate_proxmox_ticket(&max).is_ok(),
+            "2048 bytes is within the limit"
+        );
     }
 }

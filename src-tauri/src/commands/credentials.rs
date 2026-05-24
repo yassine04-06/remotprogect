@@ -1,7 +1,9 @@
-use crate::state::AppState;
-use crate::database::{self, CredentialProfile, CreateCredentialProfileRequest, UpdateCredentialProfileRequest};
-use crate::lock_err;
+use crate::database::{
+    self, CreateCredentialProfileRequest, CredentialProfile, UpdateCredentialProfileRequest,
+};
 use crate::encryption;
+use crate::lock_err;
+use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
@@ -31,13 +33,21 @@ pub fn create_credential_profile(
             }
         }
     }
-    let conn = state.db.get().map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
     Ok(database::create_credential_profile(&conn, request)?)
 }
 
 #[tauri::command]
-pub fn get_credential_profiles(state: tauri::State<AppState>) -> Result<Vec<CredentialProfile>, crate::error::AppError> {
-    let conn = state.db.get().map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
+pub fn get_credential_profiles(
+    state: tauri::State<AppState>,
+) -> Result<Vec<CredentialProfile>, crate::error::AppError> {
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
     Ok(database::get_credential_profiles(&conn)?)
 }
 
@@ -60,13 +70,22 @@ pub fn update_credential_profile(
             }
         }
     }
-    let conn = state.db.get().map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
     Ok(database::update_credential_profile(&conn, request)?)
 }
 
 #[tauri::command]
-pub fn delete_credential_profile(state: tauri::State<AppState>, id: String) -> Result<(), crate::error::AppError> {
-    let conn = state.db.get().map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
+pub fn delete_credential_profile(
+    state: tauri::State<AppState>,
+    id: String,
+) -> Result<(), crate::error::AppError> {
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
     Ok(database::delete_credential_profile(&conn, &id)?)
 }
 
@@ -80,12 +99,18 @@ pub fn resolve_credentials_internal(
     connection_id: &str,
 ) -> Result<ResolvedCredentials, crate::error::AppError> {
     let connections = database::get_connections(conn)?;
-    let connection = connections.into_iter().find(|c| c.id == connection_id)
+    let connection = connections
+        .into_iter()
+        .find(|c| c.id == connection_id)
         .ok_or("Connection not found")?;
 
     if connection.override_credentials || connection.credential_profile_id.is_none() {
-        let p_decrypted = connection.password_encrypted.and_then(|c| encryption::decrypt_auto(&c, master_key).ok());
-        let k_decrypted = connection.private_key_encrypted.and_then(|c| encryption::decrypt_auto(&c, master_key).ok());
+        let p_decrypted = connection
+            .password_encrypted
+            .and_then(|c| encryption::decrypt_auto(&c, master_key).ok());
+        let k_decrypted = connection
+            .private_key_encrypted
+            .and_then(|c| encryption::decrypt_auto(&c, master_key).ok());
         Ok(ResolvedCredentials {
             username: connection.username,
             password_decrypted: p_decrypted,
@@ -93,13 +118,21 @@ pub fn resolve_credentials_internal(
             domain: Some(connection.domain),
         })
     } else {
-        let profile_id = connection.credential_profile_id.ok_or("Credential profile ID missing")?;
+        let profile_id = connection
+            .credential_profile_id
+            .ok_or("Credential profile ID missing")?;
         let profiles = database::get_credential_profiles(conn)?;
-        let profile = profiles.into_iter().find(|p| p.id == profile_id)
+        let profile = profiles
+            .into_iter()
+            .find(|p| p.id == profile_id)
             .ok_or("Linked credential profile not found")?;
 
-        let p_decrypted = profile.password_encrypted.and_then(|c| encryption::decrypt_auto(&c, master_key).ok());
-        let k_decrypted = profile.private_key_encrypted.and_then(|c| encryption::decrypt_auto(&c, master_key).ok());
+        let p_decrypted = profile
+            .password_encrypted
+            .and_then(|c| encryption::decrypt_auto(&c, master_key).ok());
+        let k_decrypted = profile
+            .private_key_encrypted
+            .and_then(|c| encryption::decrypt_auto(&c, master_key).ok());
 
         Ok(ResolvedCredentials {
             username: profile.username.unwrap_or(connection.username),

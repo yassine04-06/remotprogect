@@ -1,5 +1,5 @@
-use std::process::Command;
 use serde::Serialize;
+use std::process::Command;
 use ts_rs::TS;
 
 #[derive(Debug, Serialize, Clone, TS)]
@@ -40,10 +40,7 @@ fn is_safe_target(s: &str) -> bool {
 /// against a strict charset to prevent any shell metacharacter from reaching
 /// the spawned process.
 #[tauri::command]
-pub async fn run_predefined_tool(
-    tool_id: String,
-    target: String,
-) -> Result<ToolResult, String> {
+pub async fn run_predefined_tool(tool_id: String, target: String) -> Result<ToolResult, String> {
     if !is_safe_target(&target) {
         tracing::warn!("run_predefined_tool rejected unsafe target: {:?}", target);
         return Err("Target contains invalid characters. Use a hostname or IP only.".to_string());
@@ -52,27 +49,38 @@ pub async fn run_predefined_tool(
     // Whitelist of allowed tools. The mapping is per-OS so we use the right binary.
     #[cfg(target_os = "windows")]
     let (program, args): (&str, Vec<&str>) = match tool_id.as_str() {
-        "ping"       => ("ping",      vec!["-n", "4", target.as_str()]),
-        "traceroute" => ("tracert",   vec!["-d", "-h", "30", target.as_str()]),
-        "dns_lookup" => ("nslookup",  vec![target.as_str()]),
+        "ping" => ("ping", vec!["-n", "4", target.as_str()]),
+        "traceroute" => ("tracert", vec!["-d", "-h", "30", target.as_str()]),
+        "dns_lookup" => ("nslookup", vec![target.as_str()]),
         _ => {
-            tracing::warn!("run_predefined_tool rejected unknown tool_id: {:?}", tool_id);
+            tracing::warn!(
+                "run_predefined_tool rejected unknown tool_id: {:?}",
+                tool_id
+            );
             return Err(format!("Tool '{}' is not in the whitelist.", tool_id));
         }
     };
 
     #[cfg(not(target_os = "windows"))]
     let (program, args): (&str, Vec<&str>) = match tool_id.as_str() {
-        "ping"       => ("ping",       vec!["-c", "4", target.as_str()]),
+        "ping" => ("ping", vec!["-c", "4", target.as_str()]),
         "traceroute" => ("traceroute", vec!["-n", "-m", "30", target.as_str()]),
-        "dns_lookup" => ("nslookup",   vec![target.as_str()]),
+        "dns_lookup" => ("nslookup", vec![target.as_str()]),
         _ => {
-            tracing::warn!("run_predefined_tool rejected unknown tool_id: {:?}", tool_id);
+            tracing::warn!(
+                "run_predefined_tool rejected unknown tool_id: {:?}",
+                tool_id
+            );
             return Err(format!("Tool '{}' is not in the whitelist.", tool_id));
         }
     };
 
-    tracing::info!("run_predefined_tool: {} {} -> target={}", tool_id, program, target);
+    tracing::info!(
+        "run_predefined_tool: {} {} -> target={}",
+        tool_id,
+        program,
+        target
+    );
 
     let output = Command::new(program)
         .args(&args)

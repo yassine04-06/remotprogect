@@ -1,23 +1,21 @@
-use rusqlite::{params, Connection, Result as SqlResult};
 use r2d2_sqlite;
+use rusqlite::{params, Connection, Result as SqlResult};
 
 pub const CURRENT_SCHEMA_VERSION: i32 = 13;
 
 // ── Database Initialization ──────────────────────────────
 
-pub fn initialize_database(db_path: &str) -> Result<r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>, Box<dyn std::error::Error>> {
+pub fn initialize_database(
+    db_path: &str,
+) -> Result<r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>, Box<dyn std::error::Error>> {
     use r2d2_sqlite::SqliteConnectionManager;
 
     // HIGH-A2: Bump pool size to 16 so a dashboard with many tabs (Docker,
     // Proxmox, SFTP) can query SQLite concurrently without stalling.
     // SQLite WAL mode allows multiple concurrent readers.
     let manager = SqliteConnectionManager::file(db_path)
-        .with_init(|conn| {
-            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
-        });
-    let pool = r2d2::Pool::builder()
-        .max_size(16)
-        .build(manager)?;
+        .with_init(|conn| conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;"));
+    let pool = r2d2::Pool::builder().max_size(16).build(manager)?;
 
     // Run migrations on one connection before handing the pool to the app.
     {
@@ -70,8 +68,11 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap_or(0);
     let schema_table_empty = conn
-        .query_row("SELECT COUNT(*) FROM schema_version", [], |r| r.get::<_, i32>(0))
-        .unwrap_or(0) == 0;
+        .query_row("SELECT COUNT(*) FROM schema_version", [], |r| {
+            r.get::<_, i32>(0)
+        })
+        .unwrap_or(0)
+        == 0;
 
     if pragma_version > 0 && schema_table_empty {
         conn.execute(
@@ -129,7 +130,10 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
             apply_migration(conn, target, migrate_fn)?;
         }
     }
-    tracing::debug!("Database schema is up to date (v{})", CURRENT_SCHEMA_VERSION);
+    tracing::debug!(
+        "Database schema is up to date (v{})",
+        CURRENT_SCHEMA_VERSION
+    );
 
     Ok(())
 }
@@ -163,7 +167,11 @@ fn apply_migration(
         }
         Err(e) => {
             let _ = conn.execute_batch(&format!("ROLLBACK TO {};", sp));
-            tracing::error!("Database migration to v{} failed, rolled back: {}", version, e);
+            tracing::error!(
+                "Database migration to v{} failed, rolled back: {}",
+                version,
+                e
+            );
             Err(e)
         }
     }
@@ -254,7 +262,7 @@ fn migrate_v2(conn: &Connection) -> SqlResult<()> {
 
             DROP TABLE connections;
             ALTER TABLE connections_new RENAME TO connections;
-            "
+            ",
         )?;
     }
 
@@ -464,8 +472,6 @@ fn migrate_v12(conn: &Connection) -> SqlResult<()> {
 fn migrate_v13(conn: &Connection) -> SqlResult<()> {
     // CRIT-A3: add chain_hash column for tamper-evident hash-chain.
     // Existing rows get an empty string; audit_log_verify marks them "legacy".
-    conn.execute_batch(
-        "ALTER TABLE audit_log ADD COLUMN chain_hash TEXT NOT NULL DEFAULT '';",
-    )?;
+    conn.execute_batch("ALTER TABLE audit_log ADD COLUMN chain_hash TEXT NOT NULL DEFAULT '';")?;
     Ok(())
 }

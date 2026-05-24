@@ -30,7 +30,9 @@ fn derive_key_and_encrypt(password: &str, plaintext: &str) -> (String, Vec<u8>, 
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let ciphertext = cipher.encrypt(nonce, plaintext.as_bytes()).expect("encryption failed");
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext.as_bytes())
+        .expect("encryption failed");
 
     let mut combined = nonce_bytes.to_vec();
     combined.extend_from_slice(&ciphertext);
@@ -55,7 +57,9 @@ fn decrypt(password: &str, encoded: &str, salt: &[u8], iterations: u32) -> Strin
     let (nonce_bytes, ciphertext) = combined.split_at(12);
     let cipher = Aes256Gcm::new(&key.into());
     let nonce = Nonce::from_slice(nonce_bytes);
-    let plaintext = cipher.decrypt(nonce, ciphertext).expect("decryption failed");
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext)
+        .expect("decryption failed");
     String::from_utf8(plaintext).expect("utf8 decode failed")
 }
 
@@ -120,7 +124,10 @@ proptest! {
 
 /// AES-256-GCM v2 encrypt: "v2:<b64(nonce || ciphertext)>"
 fn encrypt_v2(plaintext: &str, key: &[u8; 32]) -> String {
-    use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
+    use aes_gcm::{
+        aead::{Aead, KeyInit},
+        Aes256Gcm, Nonce,
+    };
     use base64::Engine as _;
     use rand::RngCore;
 
@@ -128,15 +135,23 @@ fn encrypt_v2(plaintext: &str, key: &[u8; 32]) -> String {
     let mut nonce_bytes = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
-    let ciphertext = cipher.encrypt(nonce, plaintext.as_bytes()).expect("v2 encrypt");
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext.as_bytes())
+        .expect("v2 encrypt");
     let mut combined = nonce_bytes.to_vec();
     combined.extend_from_slice(&ciphertext);
-    format!("v2:{}", base64::engine::general_purpose::STANDARD.encode(combined))
+    format!(
+        "v2:{}",
+        base64::engine::general_purpose::STANDARD.encode(combined)
+    )
 }
 
 /// Decrypt either v1 (bare base64) or v2 ("v2:<b64>").
 fn decrypt_auto(ciphertext: &str, key: &[u8; 32]) -> String {
-    use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
+    use aes_gcm::{
+        aead::{Aead, KeyInit},
+        Aes256Gcm, Nonce,
+    };
     use base64::Engine as _;
 
     let raw_b64 = if let Some(stripped) = ciphertext.strip_prefix("v2:") {
@@ -149,7 +164,9 @@ fn decrypt_auto(ciphertext: &str, key: &[u8; 32]) -> String {
         .expect("b64 decode");
     let (nonce_bytes, ct) = combined.split_at(12);
     let cipher = Aes256Gcm::new(key.into());
-    let pt = cipher.decrypt(Nonce::from_slice(nonce_bytes), ct).expect("decrypt");
+    let pt = cipher
+        .decrypt(Nonce::from_slice(nonce_bytes), ct)
+        .expect("decrypt");
     String::from_utf8(pt).expect("utf8")
 }
 
@@ -181,10 +198,16 @@ fn test_key_rotation_roundtrip() {
 
     // Verify decryptable with new key
     let recovered = decrypt_auto(&new_ct, &new_key);
-    assert_eq!(recovered, plaintext, "decrypt with new key must work after rotation");
+    assert_eq!(
+        recovered, plaintext,
+        "decrypt with new key must work after rotation"
+    );
 
     // Verify the OLD key can no longer decrypt the new ciphertext
-    use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
+    use aes_gcm::{
+        aead::{Aead, KeyInit},
+        Aes256Gcm, Nonce,
+    };
     use base64::Engine as _;
     let raw = base64::engine::general_purpose::STANDARD
         .decode(new_ct.strip_prefix("v2:").unwrap())
@@ -206,7 +229,7 @@ fn test_key_rotation_multiple_records() {
         "P@$$w0rd!#%^&*()-_+=",
         "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAK...\n-----END RSA PRIVATE KEY-----",
         "unicode: 日本語パスワード🔑",
-        "",  // empty string edge-case
+        "", // empty string edge-case
     ];
 
     for plaintext in records {
@@ -226,8 +249,8 @@ fn test_key_rotation_multiple_records() {
 /// DB-level test: create connections with encrypted passwords, re-key all rows, verify.
 #[test]
 fn test_key_rotation_db_level() {
-    use rusqlite::Connection;
     use remote_manager_lib::{database, test_helpers};
+    use rusqlite::Connection;
 
     let conn = Connection::open_in_memory().expect("in-memory DB");
     test_helpers::run_migrations_test(&conn);
@@ -257,7 +280,8 @@ fn test_key_rotation_db_level() {
             conn.execute(
                 "UPDATE connections SET password_encrypted = ?1 WHERE id = ?2",
                 rusqlite::params![new_pwd, c.id],
-            ).expect("update");
+            )
+            .expect("update");
         }
     }
     conn.execute_batch("COMMIT").expect("commit");
@@ -265,12 +289,22 @@ fn test_key_rotation_db_level() {
     // ── Verify all passwords decryptable with new key ──
     let updated = database::get_connections(&conn).expect("get after rotation");
     for (i, conn_row) in updated.iter().enumerate() {
-        let ct = conn_row.password_encrypted.as_ref().expect("must have encrypted pw");
+        let ct = conn_row
+            .password_encrypted
+            .as_ref()
+            .expect("must have encrypted pw");
         let recovered = decrypt_auto(ct, &new_key);
-        assert_eq!(recovered, passwords[i], "password[{}] must survive rotation", i);
+        assert_eq!(
+            recovered, passwords[i],
+            "password[{}] must survive rotation",
+            i
+        );
 
         // Old key must fail
-        use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
+        use aes_gcm::{
+            aead::{Aead, KeyInit},
+            Aes256Gcm, Nonce,
+        };
         use base64::Engine as _;
         let raw = base64::engine::general_purpose::STANDARD
             .decode(ct.strip_prefix("v2:").unwrap())
@@ -278,8 +312,11 @@ fn test_key_rotation_db_level() {
         let (nb, ciphertext) = raw.split_at(12);
         let old_cipher = Aes256Gcm::new((&old_key).into());
         assert!(
-            old_cipher.decrypt(Nonce::from_slice(nb), ciphertext).is_err(),
-            "old key must not decrypt row {} after rotation", i
+            old_cipher
+                .decrypt(Nonce::from_slice(nb), ciphertext)
+                .is_err(),
+            "old key must not decrypt row {} after rotation",
+            i
         );
     }
 }
@@ -287,8 +324,8 @@ fn test_key_rotation_db_level() {
 /// Schema version downgrade guard — opening a newer DB should return an error.
 #[test]
 fn test_schema_version_downgrade_guard() {
-    use rusqlite::Connection;
     use remote_manager_lib::test_helpers;
+    use rusqlite::Connection;
 
     let tmp = tempfile::NamedTempFile::new().expect("tempfile");
     let path = tmp.path().to_str().unwrap().to_string();
@@ -305,7 +342,8 @@ fn test_schema_version_downgrade_guard() {
         conn.execute(
             "INSERT OR REPLACE INTO schema_version (version) VALUES (9999)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     // initialize_database should now refuse to open the DB
@@ -317,7 +355,8 @@ fn test_schema_version_downgrade_guard() {
     let msg = result.unwrap_err().to_string();
     assert!(
         msg.contains("9999") || msg.contains("newer"),
-        "error message should mention the version: {}", msg
+        "error message should mention the version: {}",
+        msg
     );
 }
 
@@ -346,8 +385,7 @@ fn test_create_and_read_connection() {
     assert!(!created.rdp_nla);
     assert_eq!(created.docker_transport, "tcp");
 
-    let all = remote_manager_lib::database::get_connections(&conn)
-        .expect("get_connections failed");
+    let all = remote_manager_lib::database::get_connections(&conn).expect("get_connections failed");
     assert_eq!(all.len(), 1);
     assert_eq!(all[0].id, created.id);
 }

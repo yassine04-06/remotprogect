@@ -2,6 +2,9 @@
 //! Run via: cargo run --bin generate_types  (from src-tauri/)
 //! Or:       npm run generate-types          (from project root)
 
+use remote_manager_lib::commands::credentials::ResolvedCredentials;
+use remote_manager_lib::commands::recording::RecordingInfo;
+use remote_manager_lib::commands::vault::VaultStatus;
 use remote_manager_lib::database::{
     AuditEntry, ConnectionSummary, CreateConnectionRequest, CreateCredentialProfileRequest,
     CreateSavedCommandRequest, CreateSshKeyRequest, CredentialProfile, CredentialType, ExportData,
@@ -16,9 +19,6 @@ use remote_manager_lib::sftp_ftp::{FileListResult, FileNode};
 use remote_manager_lib::ssh::{SshDataEvent, SshStatusEvent};
 use remote_manager_lib::tools::ToolResult;
 use remote_manager_lib::vnc::VncAvailability;
-use remote_manager_lib::commands::recording::RecordingInfo;
-use remote_manager_lib::commands::credentials::ResolvedCredentials;
-use remote_manager_lib::commands::vault::VaultStatus;
 use ts_rs::{Config, TS};
 
 fn export<T: TS + 'static>(cfg: &Config) -> String {

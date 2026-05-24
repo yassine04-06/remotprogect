@@ -1,5 +1,5 @@
-use crate::state::AppState;
 use crate::local_shell;
+use crate::state::AppState;
 
 #[tauri::command]
 pub fn shell_spawn(
@@ -21,14 +21,18 @@ pub fn shell_send_input(
     session_id: String,
     data: String,
 ) -> Result<(), crate::error::AppError> {
-    let session = state.shell_sessions
+    let session = state
+        .shell_sessions
         .get(&session_id)
         .ok_or("Local shell session not found")?;
     Ok(local_shell::shell_send_input(&session, &data)?)
 }
 
 #[tauri::command]
-pub fn shell_disconnect(state: tauri::State<AppState>, session_id: String) -> Result<(), crate::error::AppError> {
+pub fn shell_disconnect(
+    state: tauri::State<AppState>,
+    session_id: String,
+) -> Result<(), crate::error::AppError> {
     if let Some((_, session)) = state.shell_sessions.remove(&session_id) {
         local_shell::shell_disconnect(&session)?;
     }

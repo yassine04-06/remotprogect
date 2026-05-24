@@ -2,14 +2,11 @@
 //
 // Run with: cargo test --test database_tests
 
-use remote_manager_lib::{database, test_helpers};
 use remote_manager_lib::database::{
-    UpdateConnectionRequest,
-    CreateCredentialProfileRequest, UpdateCredentialProfileRequest,
-    CreateSshKeyRequest,
-    CreateSavedCommandRequest, UpdateSavedCommandRequest,
-    SshTunnel,
+    CreateCredentialProfileRequest, CreateSavedCommandRequest, CreateSshKeyRequest, SshTunnel,
+    UpdateConnectionRequest, UpdateCredentialProfileRequest, UpdateSavedCommandRequest,
 };
+use remote_manager_lib::{database, test_helpers};
 
 // ── Setup helper ─────────────────────────────────────────────
 
@@ -54,7 +51,11 @@ fn test_create_connection_all_protocols() {
     }
 
     let all = database::get_connections(&conn).expect("get_connections failed");
-    assert_eq!(all.len(), protocols.len(), "all protocols should be in the DB");
+    assert_eq!(
+        all.len(),
+        protocols.len(),
+        "all protocols should be in the DB"
+    );
 
     let actual_protocols: Vec<&str> = all.iter().map(|c| c.protocol.as_str()).collect();
     for proto in &protocols {
@@ -128,7 +129,10 @@ fn test_delete_connection() {
     database::delete_connection(&conn, &created.id).expect("delete failed");
 
     let all = database::get_connections(&conn).expect("get_connections failed");
-    assert!(all.is_empty(), "connections list should be empty after deletion");
+    assert!(
+        all.is_empty(),
+        "connections list should be empty after deletion"
+    );
 }
 
 #[test]
@@ -262,7 +266,8 @@ fn test_create_group() {
 #[test]
 fn test_delete_group_nullifies_connections() {
     let conn = setup_db();
-    let group = database::create_group(&conn, "Group To Delete", None).expect("create group failed");
+    let group =
+        database::create_group(&conn, "Group To Delete", None).expect("create group failed");
 
     let mut req = test_helpers::make_test_connection("host-in-group", "SSH");
     req.group_id = Some(group.id.clone());
@@ -304,7 +309,9 @@ fn test_group_sort_order() {
     assert!(
         pos_g1 < pos_g2 && pos_g2 < pos_g3,
         "groups should be returned in ascending sort_order (g1={}, g2={}, g3={})",
-        pos_g1, pos_g2, pos_g3
+        pos_g1,
+        pos_g2,
+        pos_g3
     );
 }
 
@@ -332,7 +339,10 @@ fn test_create_credential_profile() {
     assert_eq!(profile.r#type, "ssh");
     assert_eq!(profile.username.as_deref(), Some("admin"));
     assert_eq!(profile.description.as_deref(), Some("My SSH credential"));
-    assert_eq!(profile.password_encrypted.as_deref(), Some("v2:some_encrypted_blob"));
+    assert_eq!(
+        profile.password_encrypted.as_deref(),
+        Some("v2:some_encrypted_blob")
+    );
 
     let profiles = database::get_credential_profiles(&conn).expect("get failed");
     assert_eq!(profiles.len(), 1);
@@ -516,7 +526,10 @@ fn test_saved_commands_crud() {
     // Delete
     database::delete_saved_command(&conn, &cmd.id).expect("delete failed");
     let cmds_after_delete = database::get_saved_commands(&conn).expect("get after delete failed");
-    assert!(cmds_after_delete.is_empty(), "command should be gone after deletion");
+    assert!(
+        cmds_after_delete.is_empty(),
+        "command should be gone after deletion"
+    );
 }
 
 // ── Schema Version tests ───────────────────────────────────────
@@ -555,11 +568,8 @@ fn test_downgrade_guard() {
     {
         let conn = rusqlite::Connection::open(&path).unwrap();
         conn.execute("DELETE FROM schema_version", []).unwrap();
-        conn.execute(
-            "INSERT INTO schema_version (version) VALUES (9999)",
-            [],
-        )
-        .unwrap();
+        conn.execute("INSERT INTO schema_version (version) VALUES (9999)", [])
+            .unwrap();
     }
 
     // initialize_database should refuse to open a DB with schema > supported
@@ -603,14 +613,20 @@ fn test_connection_with_ssh_tunnels() {
     req.ssh_tunnels = Some(tunnels.clone());
 
     let created = database::create_connection(&conn, req).expect("create failed");
-    assert!(created.ssh_tunnels.is_some(), "ssh_tunnels should round-trip");
+    assert!(
+        created.ssh_tunnels.is_some(),
+        "ssh_tunnels should round-trip"
+    );
 
     let stored_tunnels = created.ssh_tunnels.unwrap();
     assert_eq!(stored_tunnels.len(), 2);
     assert_eq!(stored_tunnels[0].id, "tunnel-1");
     assert_eq!(stored_tunnels[0].r#type, "Local");
     assert_eq!(stored_tunnels[0].local_port, 8080);
-    assert_eq!(stored_tunnels[0].destination_host.as_deref(), Some("internal.server.local"));
+    assert_eq!(
+        stored_tunnels[0].destination_host.as_deref(),
+        Some("internal.server.local")
+    );
     assert_eq!(stored_tunnels[0].destination_port, Some(80));
     assert_eq!(stored_tunnels[1].id, "tunnel-2");
     assert_eq!(stored_tunnels[1].r#type, "Dynamic");

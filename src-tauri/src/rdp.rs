@@ -1,10 +1,10 @@
 use serde::Serialize;
-use ts_rs::TS;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::Emitter;
+use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct RdpAvailability {
@@ -35,20 +35,40 @@ pub fn check_rdp_available() -> RdpAvailability {
     #[cfg(target_os = "linux")]
     {
         if which_exists("xfreerdp3") {
-            RdpAvailability { available: true, binary: "xfreerdp3".into(), message: "FreeRDP 3".into() }
+            RdpAvailability {
+                available: true,
+                binary: "xfreerdp3".into(),
+                message: "FreeRDP 3".into(),
+            }
         } else if which_exists("xfreerdp") {
-            RdpAvailability { available: true, binary: "xfreerdp".into(), message: "FreeRDP".into() }
+            RdpAvailability {
+                available: true,
+                binary: "xfreerdp".into(),
+                message: "FreeRDP".into(),
+            }
         } else {
-            RdpAvailability { available: false, binary: String::new(), message: "FreeRDP not installed.".into() }
+            RdpAvailability {
+                available: false,
+                binary: String::new(),
+                message: "FreeRDP not installed.".into(),
+            }
         }
     }
 
     #[cfg(target_os = "macos")]
     {
         if which_exists("xfreerdp") {
-            RdpAvailability { available: true, binary: "xfreerdp".into(), message: "FreeRDP".into() }
+            RdpAvailability {
+                available: true,
+                binary: "xfreerdp".into(),
+                message: "FreeRDP".into(),
+            }
         } else {
-            RdpAvailability { available: false, binary: String::new(), message: "FreeRDP not installed.".into() }
+            RdpAvailability {
+                available: false,
+                binary: String::new(),
+                message: "FreeRDP not installed.".into(),
+            }
         }
     }
 }
@@ -82,14 +102,14 @@ fn get_csc_path() -> Option<String> {
 pub fn ensure_helper_compiled(data_dir: &str) -> Result<String, String> {
     let exe_path = format!(r"{}\RdpEmbed.exe", data_dir);
 
-    let current_exe = std::env::current_exe()
-        .map_err(|e| format!("Cannot get current exe path: {}", e))?;
+    let current_exe =
+        std::env::current_exe().map_err(|e| format!("Cannot get current exe path: {}", e))?;
     let exe_dir = current_exe.parent().ok_or("Cannot get exe directory")?;
 
     // Check for pre-compiled exe: production (Tauri bundled resource) or dev (helpers/ next to src)
     let pre_compiled_candidates = {
         let mut v = vec![
-            exe_dir.join("helpers").join("RdpEmbed.exe"),   // production bundle
+            exe_dir.join("helpers").join("RdpEmbed.exe"), // production bundle
         ];
         // Dev mode: target/debug/ → target/ → src-tauri/ → src-tauri/helpers/RdpEmbed.exe
         if let Some(dev_pre) = exe_dir
@@ -146,17 +166,20 @@ pub fn ensure_helper_compiled(data_dir: &str) -> Result<String, String> {
         .and_then(|p| p.parent())
         .map(|p| p.join("helpers").join("RdpEmbed.cs"));
 
-    let source_path = possible_cs.iter()
+    let source_path = possible_cs
+        .iter()
         .chain(dev_cs.iter())
         .find(|p| p.exists())
         .ok_or_else(|| {
             "RdpEmbed.exe and RdpEmbed.cs both not found. \
-             Ensure .NET Framework 4.x is installed and the app was built correctly.".to_string()
+             Ensure .NET Framework 4.x is installed and the app was built correctly."
+                .to_string()
         })?;
 
     let csc = get_csc_path().ok_or_else(|| {
         ".NET Framework csc.exe not found. \
-         Install .NET Framework 4.x to enable RDP embedding.".to_string()
+         Install .NET Framework 4.x to enable RDP embedding."
+            .to_string()
     })?;
 
     let output = Command::new(&csc)
@@ -166,7 +189,11 @@ pub fn ensure_helper_compiled(data_dir: &str) -> Result<String, String> {
         .arg("/reference:System.dll")
         .arg("/reference:System.Windows.Forms.dll")
         .arg("/reference:System.Drawing.dll")
-        .arg(source_path.to_str().ok_or("RdpEmbed.cs path is not valid UTF-8")?)
+        .arg(
+            source_path
+                .to_str()
+                .ok_or("RdpEmbed.cs path is not valid UTF-8")?,
+        )
         .output()
         .map_err(|e| format!("Failed to run csc.exe: {}", e))?;
 
@@ -271,7 +298,10 @@ pub fn launch_rdp_embedded(
 
 /// Send a command string to the C# embedded helper via stdin.
 pub fn send_command(session: &EmbeddedRdpSession, cmd: &str) -> Result<(), String> {
-    let mut guard = session.stdin.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let mut guard = session
+        .stdin
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
     if let Some(ref mut stdin) = *guard {
         writeln!(stdin, "{}", cmd).map_err(|e| format!("Write error: {}", e))?;
         stdin.flush().map_err(|e| format!("Flush error: {}", e))?;
@@ -280,7 +310,13 @@ pub fn send_command(session: &EmbeddedRdpSession, cmd: &str) -> Result<(), Strin
 }
 
 /// Reposition/resize the embedded RDP window using physical screen coordinates.
-pub fn resize_embedded(session: &EmbeddedRdpSession, x: i32, y: i32, w: i32, h: i32) -> Result<(), String> {
+pub fn resize_embedded(
+    session: &EmbeddedRdpSession,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+) -> Result<(), String> {
     send_command(session, &format!("RESIZE:{},{},{},{}", x, y, w, h))
 }
 
@@ -379,9 +415,14 @@ pub fn launch_rdp_mstsc(
              audiomode:i:{}\r\n\
              authenticationlevel:i:{}\r\n\
              prompt for credentials:i:0\r\n",
-            host, port, username, domain,
+            host,
+            port,
+            username,
+            domain,
             if fullscreen { 2 } else { 1 },
-            width, height, color_depth,
+            width,
+            height,
+            color_depth,
             if drives { 1 } else { 0 },
             if printers { 1 } else { 0 },
             if audio { 0 } else { 2 },
@@ -432,20 +473,39 @@ pub fn launch_rdp_mstsc(
 
     #[cfg(not(target_os = "windows"))]
     {
-        let binary = if which_exists("xfreerdp3") { "xfreerdp3" } else { "xfreerdp" };
+        let binary = if which_exists("xfreerdp3") {
+            "xfreerdp3"
+        } else {
+            "xfreerdp"
+        };
         let mut cmd = Command::new(binary);
         cmd.arg(format!("/v:{}:{}", host, port))
             .arg(format!("/u:{}", username))
             .arg(format!("/size:{}x{}", width, height))
             .arg(format!("/bpp:{}", color_depth));
 
-        if !domain.is_empty() { cmd.arg(format!("/d:{}", domain)); }
-        if audio { cmd.arg("/audio-mode:0"); } else { cmd.arg("/audio-mode:1"); }
-        if drives { cmd.arg("+drive"); }
-        if printers { cmd.arg("+printer"); }
-        if fullscreen { cmd.arg("/f"); }
-        if !password.is_empty() { cmd.arg(format!("/p:{}", password)); }
+        if !domain.is_empty() {
+            cmd.arg(format!("/d:{}", domain));
+        }
+        if audio {
+            cmd.arg("/audio-mode:0");
+        } else {
+            cmd.arg("/audio-mode:1");
+        }
+        if drives {
+            cmd.arg("+drive");
+        }
+        if printers {
+            cmd.arg("+printer");
+        }
+        if fullscreen {
+            cmd.arg("/f");
+        }
+        if !password.is_empty() {
+            cmd.arg(format!("/p:{}", password));
+        }
 
-        cmd.spawn().map_err(|e| format!("Failed to launch {}: {}", binary, e))
+        cmd.spawn()
+            .map_err(|e| format!("Failed to launch {}: {}", binary, e))
     }
 }

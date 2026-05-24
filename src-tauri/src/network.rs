@@ -1,11 +1,11 @@
 use serde::Serialize;
-use ts_rs::TS;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
+use ts_rs::TS;
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -94,10 +94,8 @@ pub async fn scan_network(
     ports: Vec<u16>,
     timeout_ms: u64,
 ) -> Result<(), String> {
-    let start = Ipv4Addr::from_str(&start_ip)
-        .map_err(|e| format!("Invalid start IP: {}", e))?;
-    let end = Ipv4Addr::from_str(&end_ip)
-        .map_err(|e| format!("Invalid end IP: {}", e))?;
+    let start = Ipv4Addr::from_str(&start_ip).map_err(|e| format!("Invalid start IP: {}", e))?;
+    let end = Ipv4Addr::from_str(&end_ip).map_err(|e| format!("Invalid end IP: {}", e))?;
 
     let start_int = ipv4_to_u32(start);
     let end_int = ipv4_to_u32(end);
@@ -115,7 +113,9 @@ pub async fn scan_network(
     // LOW-A8: Each scan gets its own cancellation flag so multiple concurrent
     // scans can be cancelled independently without a global race condition.
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    state.network_scan_cancel.insert(scan_id.clone(), Arc::clone(&cancel));
+    state
+        .network_scan_cancel
+        .insert(scan_id.clone(), Arc::clone(&cancel));
 
     tracing::info!(
         "Network scan started: scan_id={} range={}-{} total={}",
@@ -164,7 +164,12 @@ pub async fn scan_network(
             );
 
             if cancel.load(Ordering::Relaxed) {
-                tracing::info!("Network scan cancelled: scan_id={} scanned={}/{}", scan_id, scanned, total);
+                tracing::info!(
+                    "Network scan cancelled: scan_id={} scanned={}/{}",
+                    scan_id,
+                    scanned,
+                    total
+                );
                 let _ = app.emit(
                     &format!("network:progress:{}", scan_id),
                     NetworkScanProgress {
@@ -179,7 +184,9 @@ pub async fn scan_network(
                 );
                 // LOW-A8: clean up this scan's cancel flag from the DashMap
                 use tauri::Manager;
-                app.state::<crate::state::AppState>().network_scan_cancel.remove(&scan_id);
+                app.state::<crate::state::AppState>()
+                    .network_scan_cancel
+                    .remove(&scan_id);
                 return;
             }
         }
@@ -199,7 +206,9 @@ pub async fn scan_network(
         );
         // LOW-A8: clean up this scan's cancel flag
         use tauri::Manager;
-        app.state::<crate::state::AppState>().network_scan_cancel.remove(&scan_id);
+        app.state::<crate::state::AppState>()
+            .network_scan_cancel
+            .remove(&scan_id);
     });
 
     Ok(())

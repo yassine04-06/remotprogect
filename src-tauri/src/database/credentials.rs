@@ -1,11 +1,16 @@
+use super::models::{
+    CreateCredentialProfileRequest, CredentialProfile, UpdateCredentialProfileRequest,
+};
+use chrono::Utc;
 use rusqlite::{params, Connection};
 use uuid::Uuid;
-use chrono::Utc;
-use super::models::{CredentialProfile, CreateCredentialProfileRequest, UpdateCredentialProfileRequest};
 
 // ── Credential Profiles CRUD ───────────────────────────────
 
-pub fn create_credential_profile(conn: &Connection, req: CreateCredentialProfileRequest) -> Result<CredentialProfile, String> {
+pub fn create_credential_profile(
+    conn: &Connection,
+    req: CreateCredentialProfileRequest,
+) -> Result<CredentialProfile, String> {
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().timestamp();
 
@@ -63,7 +68,10 @@ pub fn get_credential_profiles(conn: &Connection) -> Result<Vec<CredentialProfil
     Ok(profiles)
 }
 
-pub fn update_credential_profile(conn: &Connection, req: UpdateCredentialProfileRequest) -> Result<(), String> {
+pub fn update_credential_profile(
+    conn: &Connection,
+    req: UpdateCredentialProfileRequest,
+) -> Result<(), String> {
     let now = Utc::now().timestamp();
 
     conn.execute(

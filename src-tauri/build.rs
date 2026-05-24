@@ -10,8 +10,8 @@ fn main() {
 }
 
 fn compile_rdp_helper() {
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR not set by Cargo");
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set by Cargo");
 
     let source = std::path::PathBuf::from(&manifest_dir)
         .join("helpers")

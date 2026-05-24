@@ -38,11 +38,11 @@ const MAX_LOG_FILES: usize = 10;
 ///
 /// Pass this to `tracing_appender::non_blocking(writer)`.
 pub struct ScrubRotateWriter {
-    file:         BufWriter<File>,
+    file: BufWriter<File>,
     current_size: u64,
-    current_day:  u32,    // day-of-year; triggers daily roll when it changes
-    log_dir:      PathBuf,
-    patterns:     Vec<(Regex, &'static str)>,
+    current_day: u32, // day-of-year; triggers daily roll when it changes
+    log_dir: PathBuf,
+    patterns: Vec<(Regex, &'static str)>,
 }
 
 impl ScrubRotateWriter {
@@ -50,7 +50,7 @@ impl ScrubRotateWriter {
     /// inside `log_dir`.  On startup it reuses the most recent today-file if it
     /// is still under the size limit, otherwise it opens a new one.
     pub fn new(log_dir: &Path) -> io::Result<Self> {
-        let today     = Local::now().ordinal();
+        let today = Local::now().ordinal();
         let (file, size) = Self::open_or_create(log_dir, today)?;
         Ok(Self {
             file: BufWriter::new(file),
@@ -66,7 +66,7 @@ impl ScrubRotateWriter {
     /// Open the most recent today-file that still has room, or create a new one.
     fn open_or_create(log_dir: &Path, today_ordinal: u32) -> io::Result<(File, u64)> {
         let today_str = Local::now().format("%Y-%m-%d").to_string();
-        let prefix    = format!("nexorc.{}", today_str);
+        let prefix = format!("nexorc.{}", today_str);
 
         // Walk existing log files, newest-first, and reuse the first one that fits.
         let mut today_files = Self::list_logs(log_dir)
@@ -83,7 +83,7 @@ impl ScrubRotateWriter {
         for path in &today_files {
             if let Ok(meta) = fs::metadata(path) {
                 if meta.len() < MAX_LOG_BYTES {
-                    let f    = OpenOptions::new().append(true).open(path)?;
+                    let f = OpenOptions::new().append(true).open(path)?;
                     let size = meta.len();
                     return Ok((f, size));
                 }
@@ -93,7 +93,7 @@ impl ScrubRotateWriter {
         // No suitable existing file — create a fresh one.
         let _ = today_ordinal; // used by caller to set current_day
         let path = Self::new_log_path(log_dir);
-        let f    = OpenOptions::new().create(true).append(true).open(&path)?;
+        let f = OpenOptions::new().create(true).append(true).open(&path)?;
         Ok((f, 0))
     }
 
@@ -138,13 +138,13 @@ impl ScrubRotateWriter {
     /// Roll to a fresh file.  Called when size > MAX_LOG_BYTES or the day changed.
     fn rotate(&mut self, new_day: u32) -> io::Result<()> {
         self.file.flush()?;
-        let path     = Self::new_log_path(&self.log_dir);
+        let path = Self::new_log_path(&self.log_dir);
         let new_file = OpenOptions::new().create(true).append(true).open(&path)?;
         // File may already exist (same-millisecond call); read actual size.
-        let size     = new_file.metadata().map(|m| m.len()).unwrap_or(0);
-        self.file         = BufWriter::new(new_file);
+        let size = new_file.metadata().map(|m| m.len()).unwrap_or(0);
+        self.file = BufWriter::new(new_file);
         self.current_size = size;
-        self.current_day  = new_day;
+        self.current_day = new_day;
         self.prune_old_logs();
         Ok(())
     }
@@ -170,9 +170,9 @@ impl Write for ScrubRotateWriter {
         }
 
         // ── Scrub PII ────────────────────────────────────────────────────────
-        let text     = String::from_utf8_lossy(buf);
+        let text = String::from_utf8_lossy(buf);
         let scrubbed = self.scrub(&text);
-        let bytes    = scrubbed.as_bytes();
+        let bytes = scrubbed.as_bytes();
 
         self.file.write_all(bytes)?;
         self.current_size += bytes.len() as u64;

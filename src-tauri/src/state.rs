@@ -1,11 +1,11 @@
-use std::sync::{Arc, Mutex, RwLock};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
-use dashmap::DashMap;
-use std::process::Child;
-use r2d2_sqlite::SqliteConnectionManager;
-use crate::rdp::EmbeddedRdpSession;
 use crate::docker::DockerExecSession;
+use crate::rdp::EmbeddedRdpSession;
 use crate::vnc_client::VncSession;
+use dashmap::DashMap;
+use r2d2_sqlite::SqliteConnectionManager;
+use std::process::Child;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
+use std::sync::{Arc, Mutex, RwLock};
 
 // ── HIGH-A5: per-command rate limiter ─────────────────────────────────────────
 // governor DashMapStateStore keyed on &'static str (command name).
@@ -55,7 +55,6 @@ pub struct AppState {
     pub data_dir: String,
 
     // ── Vault hardening ───────────────────────────────────────────────────────
-
     /// PBKDF2 iteration count used when this vault was last (re-)keyed.
     /// Read from config.json so existing vaults unlock with their recorded count;
     /// bumped to DEFAULT_KDF_ITERATIONS on every set/change_master_password.
@@ -83,7 +82,6 @@ pub struct AppState {
     pub unlock_lockout_count: Arc<AtomicU32>,
 
     // ── Session maps ──────────────────────────────────────────────────────────
-
     /// Legacy RDP processes (mstsc), keyed by session ID.
     pub rdp_processes: DashMap<String, Child>,
 
@@ -106,7 +104,8 @@ pub struct AppState {
 
     // ── 30-11: SFTP session pool ──────────────────────────────────────────────
     /// Cached ssh2 sessions keyed by "host:port:username".
-    pub sftp_pool: DashMap<String, Arc<std::sync::Mutex<Option<crate::sftp_ftp::CachedSftpSession>>>>,
+    pub sftp_pool:
+        DashMap<String, Arc<std::sync::Mutex<Option<crate::sftp_ftp::CachedSftpSession>>>>,
 
     // ── 90-11: Native VNC sessions ────────────────────────────────────────────
     /// Active VNC streaming sessions keyed by session_id.

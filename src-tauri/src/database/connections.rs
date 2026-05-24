@@ -1,9 +1,9 @@
+use super::models::{CreateConnectionRequest, ServerConnection, UpdateConnectionRequest};
+use chrono::Utc;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
-use chrono::Utc;
-use super::models::{ServerConnection, CreateConnectionRequest, UpdateConnectionRequest};
 
 // ── Lightweight summary for sidebar rendering ─────────────
 // 30-15: avoids pulling large blobs (ssh_tunnels JSON, encrypted fields) for the
@@ -99,7 +99,10 @@ pub fn create_connection(
         notes: req.notes.clone(),
         use_ftps: req.use_ftps.unwrap_or(false),
         rdp_nla: req.rdp_nla.unwrap_or(false),
-        docker_transport: req.docker_transport.clone().unwrap_or_else(|| "tcp".to_string()),
+        docker_transport: req
+            .docker_transport
+            .clone()
+            .unwrap_or_else(|| "tcp".to_string()),
         docker_socket_path: req.docker_socket_path.clone(),
         docker_tls_ca_path: req.docker_tls_ca_path.clone(),
         docker_tls_cert_path: req.docker_tls_cert_path.clone(),
@@ -147,7 +150,9 @@ pub fn create_connection(
 
 pub fn update_connection(conn: &Connection, req: UpdateConnectionRequest) -> Result<(), String> {
     let now = Utc::now().to_rfc3339();
-    let tunnels_json = req.ssh_tunnels.map(|t| serde_json::to_string(&t).unwrap_or_default());
+    let tunnels_json = req
+        .ssh_tunnels
+        .map(|t| serde_json::to_string(&t).unwrap_or_default());
 
     conn.execute(
         "UPDATE connections SET name=?1, host=?2, port=?3, protocol=?4, username=?5,
@@ -161,27 +166,42 @@ pub fn update_connection(conn: &Connection, req: UpdateConnectionRequest) -> Res
          proxmox_api_token_id=?33, proxmox_api_token_secret_encrypted=?34,
          updated_at=?35 WHERE id=?36",
         params![
-            req.name, req.host, req.port, req.protocol, req.username,
-            req.password_encrypted, req.private_key_encrypted, req.group_id,
+            req.name,
+            req.host,
+            req.port,
+            req.protocol,
+            req.username,
+            req.password_encrypted,
+            req.private_key_encrypted,
+            req.group_id,
             req.use_private_key as i32,
-            req.rdp_width.unwrap_or(1920), req.rdp_height.unwrap_or(1080),
+            req.rdp_width.unwrap_or(1920),
+            req.rdp_height.unwrap_or(1080),
             req.rdp_fullscreen.unwrap_or(false) as i32,
-            req.domain.unwrap_or_default(), req.rdp_color_depth.unwrap_or(24),
+            req.domain.unwrap_or_default(),
+            req.rdp_color_depth.unwrap_or(24),
             req.rdp_redirect_audio.unwrap_or(false) as i32,
             req.rdp_redirect_printers.unwrap_or(false) as i32,
             req.rdp_redirect_drives.unwrap_or(false) as i32,
-            tunnels_json, req.credential_profile_id,
+            tunnels_json,
+            req.credential_profile_id,
             req.override_credentials.unwrap_or(true) as i32,
             req.jump_host_id,
-            req.use_ssh_agent.unwrap_or(false) as i32, req.ssh_key_id,
-            req.tags, req.notes,
+            req.use_ssh_agent.unwrap_or(false) as i32,
+            req.ssh_key_id,
+            req.tags,
+            req.notes,
             req.use_ftps.unwrap_or(false) as i32,
             req.rdp_nla.unwrap_or(false) as i32,
             req.docker_transport.unwrap_or_else(|| "tcp".to_string()),
             req.docker_socket_path,
-            req.docker_tls_ca_path, req.docker_tls_cert_path, req.docker_tls_key_path,
-            req.proxmox_api_token_id, req.proxmox_api_token_secret_encrypted,
-            now, req.id,
+            req.docker_tls_ca_path,
+            req.docker_tls_cert_path,
+            req.docker_tls_key_path,
+            req.proxmox_api_token_id,
+            req.proxmox_api_token_secret_encrypted,
+            now,
+            req.id,
         ],
     )
     .map_err(|e| format!("Failed to update connection: {}", e))?;
@@ -233,7 +253,8 @@ pub fn get_connections(conn: &Connection) -> Result<Vec<ServerConnection>, Strin
                 rdp_redirect_audio: row.get::<_, i32>(15)? != 0,
                 rdp_redirect_printers: row.get::<_, i32>(16)? != 0,
                 rdp_redirect_drives: row.get::<_, i32>(17)? != 0,
-                ssh_tunnels: row.get::<_, Option<String>>(18)?
+                ssh_tunnels: row
+                    .get::<_, Option<String>>(18)?
                     .and_then(|s| serde_json::from_str(&s).ok()),
                 credential_profile_id: row.get(19)?,
                 override_credentials: row.get::<_, i32>(20)? != 0,
@@ -246,7 +267,9 @@ pub fn get_connections(conn: &Connection) -> Result<Vec<ServerConnection>, Strin
                 notes: row.get(27)?,
                 use_ftps: row.get::<_, i32>(28).unwrap_or(0) != 0,
                 rdp_nla: row.get::<_, i32>(29).unwrap_or(0) != 0,
-                docker_transport: row.get::<_, Option<String>>(30)?.unwrap_or_else(|| "tcp".to_string()),
+                docker_transport: row
+                    .get::<_, Option<String>>(30)?
+                    .unwrap_or_else(|| "tcp".to_string()),
                 docker_socket_path: row.get(31)?,
                 docker_tls_ca_path: row.get(32)?,
                 docker_tls_cert_path: row.get(33)?,
@@ -266,7 +289,10 @@ pub fn get_connections(conn: &Connection) -> Result<Vec<ServerConnection>, Strin
 
 /// Fetch a single connection by its UUID primary key.
 /// Returns None if not found (caller decides whether to error).
-pub fn get_connection_by_id(conn: &Connection, id: &str) -> Result<Option<ServerConnection>, String> {
+pub fn get_connection_by_id(
+    conn: &Connection,
+    id: &str,
+) -> Result<Option<ServerConnection>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, name, host, port, protocol, username, password_encrypted,
@@ -303,7 +329,8 @@ pub fn get_connection_by_id(conn: &Connection, id: &str) -> Result<Option<Server
             rdp_redirect_audio: row.get::<_, i32>(15)? != 0,
             rdp_redirect_printers: row.get::<_, i32>(16)? != 0,
             rdp_redirect_drives: row.get::<_, i32>(17)? != 0,
-            ssh_tunnels: row.get::<_, Option<String>>(18)?
+            ssh_tunnels: row
+                .get::<_, Option<String>>(18)?
                 .and_then(|s| serde_json::from_str(&s).ok()),
             credential_profile_id: row.get(19)?,
             override_credentials: row.get::<_, i32>(20)? != 0,
@@ -316,7 +343,9 @@ pub fn get_connection_by_id(conn: &Connection, id: &str) -> Result<Option<Server
             notes: row.get(27)?,
             use_ftps: row.get::<_, i32>(28).unwrap_or(0) != 0,
             rdp_nla: row.get::<_, i32>(29).unwrap_or(0) != 0,
-            docker_transport: row.get::<_, Option<String>>(30)?.unwrap_or_else(|| "tcp".to_string()),
+            docker_transport: row
+                .get::<_, Option<String>>(30)?
+                .unwrap_or_else(|| "tcp".to_string()),
             docker_socket_path: row.get(31)?,
             docker_tls_ca_path: row.get(32)?,
             docker_tls_cert_path: row.get(33)?,
@@ -339,22 +368,36 @@ pub fn get_connection_by_id(conn: &Connection, id: &str) -> Result<Option<Server
 
 pub fn toggle_favorite(conn: &Connection, id: &str) -> Result<bool, String> {
     let current: i32 = conn
-        .query_row("SELECT is_favorite FROM connections WHERE id=?1", params![id], |r| r.get(0))
+        .query_row(
+            "SELECT is_favorite FROM connections WHERE id=?1",
+            params![id],
+            |r| r.get(0),
+        )
         .map_err(|e| format!("toggle_favorite query: {}", e))?;
     let new_val = if current != 0 { 0i32 } else { 1i32 };
-    conn.execute("UPDATE connections SET is_favorite=?1 WHERE id=?2", params![new_val, id])
-        .map_err(|e| format!("toggle_favorite update: {}", e))?;
+    conn.execute(
+        "UPDATE connections SET is_favorite=?1 WHERE id=?2",
+        params![new_val, id],
+    )
+    .map_err(|e| format!("toggle_favorite update: {}", e))?;
     Ok(new_val != 0)
 }
 
 pub fn update_last_connected(conn: &Connection, id: &str) -> Result<(), String> {
     let now = Utc::now().timestamp();
-    conn.execute("UPDATE connections SET last_connected_at=?1 WHERE id=?2", params![now, id])
-        .map_err(|e| format!("update_last_connected: {}", e))?;
+    conn.execute(
+        "UPDATE connections SET last_connected_at=?1 WHERE id=?2",
+        params![now, id],
+    )
+    .map_err(|e| format!("update_last_connected: {}", e))?;
     Ok(())
 }
 
-pub fn update_connection_group(conn: &Connection, connection_id: &str, group_id: Option<&str>) -> Result<(), String> {
+pub fn update_connection_group(
+    conn: &Connection,
+    connection_id: &str,
+    group_id: Option<&str>,
+) -> Result<(), String> {
     conn.execute(
         "UPDATE connections SET group_id=?1, updated_at=?2 WHERE id=?3",
         params![group_id, Utc::now().to_rfc3339(), connection_id],

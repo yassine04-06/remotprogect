@@ -1,5 +1,5 @@
-use std::process::{Child, Command};
 use serde::{Deserialize, Serialize};
+use std::process::{Child, Command};
 use ts_rs::TS;
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -56,7 +56,9 @@ pub fn check_vnc_availability() -> VncAvailability {
     VncAvailability {
         available: false,
         binary_path: None,
-        error: Some("vncviewer not found. Please install TigerVNC or your preferred VNC client.".into()),
+        error: Some(
+            "vncviewer not found. Please install TigerVNC or your preferred VNC client.".into(),
+        ),
     }
 }
 
@@ -69,7 +71,8 @@ pub fn launch_vnc(
     let addr = format!("{}:{}", host, port);
     let mut cmd = Command::new(binary);
     cmd.arg(&addr);
-    cmd.spawn().map_err(|e| format!("Failed to launch VNC client: {}", e))
+    cmd.spawn()
+        .map_err(|e| format!("Failed to launch VNC client: {}", e))
 }
 
 #[tauri::command]
@@ -89,12 +92,12 @@ pub async fn vnc_connect(
     if !avail.available {
         return Err(avail.error.unwrap_or_else(|| "VNC not available".into()));
     }
-    
+
     let binary = avail.binary_path.ok_or("Binary VNC non trovato")?;
     let child = launch_vnc(&binary, &host, port, password.as_deref())?;
-    
+
     // We can reuse the rdp_processes map since VNC is also an external GUI process
     app_state.rdp_processes.insert(session_id, child);
-    
+
     Ok("VNC launched".into())
 }

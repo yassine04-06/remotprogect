@@ -1,10 +1,14 @@
+use super::models::Group;
 use rusqlite::{params, Connection};
 use uuid::Uuid;
-use super::models::Group;
 
 // ── Group CRUD ───────────────────────────────────────────
 
-pub fn create_group(conn: &Connection, name: &str, parent_id: Option<&str>) -> Result<Group, String> {
+pub fn create_group(
+    conn: &Connection,
+    name: &str,
+    parent_id: Option<&str>,
+) -> Result<Group, String> {
     let id = Uuid::new_v4().to_string();
     let sort_order: i32 = conn
         .query_row(
@@ -29,8 +33,11 @@ pub fn create_group(conn: &Connection, name: &str, parent_id: Option<&str>) -> R
 }
 
 pub fn update_group(conn: &Connection, id: &str, name: &str) -> Result<(), String> {
-    conn.execute("UPDATE groups SET name = ?1 WHERE id = ?2", params![name, id])
-        .map_err(|e| format!("Failed to update group: {}", e))?;
+    conn.execute(
+        "UPDATE groups SET name = ?1 WHERE id = ?2",
+        params![name, id],
+    )
+    .map_err(|e| format!("Failed to update group: {}", e))?;
     Ok(())
 }
 

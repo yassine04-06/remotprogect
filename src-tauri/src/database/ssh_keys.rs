@@ -1,6 +1,6 @@
+use super::models::{CreateSshKeyRequest, SshKey};
 use rusqlite::{params, Connection};
 use uuid::Uuid;
-use super::models::{SshKey, CreateSshKeyRequest};
 
 // ── SSH Key Vault (90-1) ──────────────────────────────────
 

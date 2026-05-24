@@ -1,8 +1,8 @@
-use rusqlite::{params, Connection};
-use uuid::Uuid;
-use chrono::Utc;
-use sha2::{Digest, Sha256};
 use super::models::{AuditEntry, AuditVerifyEntry, AuditVerifyResult};
+use chrono::Utc;
+use rusqlite::{params, Connection};
+use sha2::{Digest, Sha256};
+use uuid::Uuid;
 
 // ── Audit Log (90-10 / CRIT-A3) ─────────────────────────
 //
@@ -73,9 +73,23 @@ pub fn audit_log_insert(
         .unwrap_or_else(|_| "GENESIS".to_string());
     // Treat legacy empty-string hashes the same as GENESIS so the chain
     // restarts cleanly after the migration rather than chaining off "".
-    let prev_hash = if prev_hash.is_empty() { "GENESIS".to_string() } else { prev_hash };
+    let prev_hash = if prev_hash.is_empty() {
+        "GENESIS".to_string()
+    } else {
+        prev_hash
+    };
 
-    let chain_hash = audit_chain_hash(&prev_hash, &id, ts, action, entity_type, entity_id, entity_name, outcome, details);
+    let chain_hash = audit_chain_hash(
+        &prev_hash,
+        &id,
+        ts,
+        action,
+        entity_type,
+        entity_id,
+        entity_name,
+        outcome,
+        details,
+    );
 
     conn.execute(
         "INSERT INTO audit_log \
@@ -87,7 +101,11 @@ pub fn audit_log_insert(
     Ok(())
 }
 
-pub fn audit_log_list(conn: &Connection, limit: i64, offset: i64) -> Result<Vec<AuditEntry>, String> {
+pub fn audit_log_list(
+    conn: &Connection,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<AuditEntry>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, timestamp, action, entity_type, entity_id, entity_name, outcome, details, chain_hash \
@@ -156,7 +174,11 @@ pub fn audit_log_verify(conn: &Connection) -> Result<AuditVerifyResult, String> 
             // Legacy entry: cannot verify. Reset prev_hash so the next
             // post-v13 entry still has a valid predecessor.
             prev_hash = "GENESIS".to_string();
-            entries.push(AuditVerifyEntry { entry, hash_valid: true, is_legacy: true });
+            entries.push(AuditVerifyEntry {
+                entry,
+                hash_valid: true,
+                is_legacy: true,
+            });
             continue;
         }
 
@@ -176,7 +198,11 @@ pub fn audit_log_verify(conn: &Connection) -> Result<AuditVerifyResult, String> 
             tampered_count += 1;
         }
         prev_hash = entry.chain_hash.clone();
-        entries.push(AuditVerifyEntry { entry, hash_valid, is_legacy: false });
+        entries.push(AuditVerifyEntry {
+            entry,
+            hash_valid,
+            is_legacy: false,
+        });
     }
 
     let chain_intact = tampered_count == 0;

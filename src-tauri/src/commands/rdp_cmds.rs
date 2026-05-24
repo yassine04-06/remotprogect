@@ -1,8 +1,8 @@
-use crate::state::AppState;
-use crate::rdp;
-use crate::database;
 use crate::commands::credentials::resolve_credentials_internal;
+use crate::database;
 use crate::lock_err;
+use crate::rdp;
+use crate::state::AppState;
 
 #[tauri::command]
 pub fn rdp_check_available() -> rdp::RdpAvailability {
@@ -28,9 +28,14 @@ pub fn rdp_connect(
 ) -> Result<String, crate::error::AppError> {
     use tauri::Manager;
 
-    let conn = state.db.get().map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
     let all_conns = database::get_connections(&conn)?;
-    let connection = all_conns.into_iter().find(|c| c.id == connection_id)
+    let connection = all_conns
+        .into_iter()
+        .find(|c| c.id == connection_id)
         .ok_or("Connection not found")?;
 
     let host = connection.host.clone();
@@ -53,12 +58,22 @@ pub fn rdp_connect(
         format!("{}\\{}", domain, username)
     };
 
-    let window = app.get_webview_window("main").ok_or("Main window not found")?;
+    let window = app
+        .get_webview_window("main")
+        .ok_or("Main window not found")?;
     let parent_hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as i64;
 
     match rdp::launch_rdp_embedded(
-        &state.data_dir, &host, port, &full_username, &password,
-        parent_hwnd, -32000, -32000, width, height,
+        &state.data_dir,
+        &host,
+        port,
+        &full_username,
+        &password,
+        parent_hwnd,
+        -32000,
+        -32000,
+        width,
+        height,
     ) {
         Ok(mut session) => {
             if let Some(stderr) = session.child.stderr.take() {
@@ -76,11 +91,24 @@ pub fn rdp_connect(
             Ok(session_id)
         }
         Err(e) => {
-            tracing::warn!("Failed to launch embedded RDP: {}. Falling back to mstsc...", e);
+            tracing::warn!(
+                "Failed to launch embedded RDP: {}. Falling back to mstsc...",
+                e
+            );
             let child = rdp::launch_rdp_mstsc(
-                &host, port, &username, &password,
-                width, height, fullscreen, &domain,
-                color_depth, audio, printers, drives, nla,
+                &host,
+                port,
+                &username,
+                &password,
+                width,
+                height,
+                fullscreen,
+                &domain,
+                color_depth,
+                audio,
+                printers,
+                drives,
+                nla,
             )?;
             state.rdp_processes.insert(session_id.clone(), child);
             Ok(session_id)
@@ -103,9 +131,14 @@ pub fn rdp_connect(
     printers: bool,
     drives: bool,
 ) -> Result<String, crate::error::AppError> {
-    let conn = state.db.get().map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
     let all_conns = database::get_connections(&conn)?;
-    let connection = all_conns.into_iter().find(|c| c.id == connection_id)
+    let connection = all_conns
+        .into_iter()
+        .find(|c| c.id == connection_id)
         .ok_or("Connection not found")?;
 
     let host = connection.host.clone();
@@ -123,16 +156,29 @@ pub fn rdp_connect(
     let domain = creds.domain.unwrap_or_default();
 
     let child = rdp::launch_rdp_mstsc(
-        &host, port, &username, &password,
-        width, height, fullscreen, &domain,
-        color_depth, audio, printers, drives, nla,
+        &host,
+        port,
+        &username,
+        &password,
+        width,
+        height,
+        fullscreen,
+        &domain,
+        color_depth,
+        audio,
+        printers,
+        drives,
+        nla,
     )?;
     state.rdp_processes.insert(session_id.clone(), child);
     Ok(session_id)
 }
 
 #[tauri::command]
-pub fn rdp_disconnect(state: tauri::State<AppState>, session_id: String) -> Result<(), crate::error::AppError> {
+pub fn rdp_disconnect(
+    state: tauri::State<AppState>,
+    session_id: String,
+) -> Result<(), crate::error::AppError> {
     if let Some((_, session)) = state.rdp_sessions.remove(&session_id) {
         rdp::close_embedded(&session);
     }
@@ -172,13 +218,15 @@ pub fn rdp_resize_embedded(
             // Use the DPR forwarded by JavaScript — it is already correct for the
             // current monitor.  We fall back to Rust's scale_factor() only if the
             // caller passes an unreasonable value (guard against JS bugs).
-            let scale = if dpr > 0.5 && dpr < 8.0 { dpr } else {
+            let scale = if dpr > 0.5 && dpr < 8.0 {
+                dpr
+            } else {
                 window.scale_factor().map_err(|e| e.to_string())?
             };
 
             let screen_x = (pos.x as f64 + x * scale).round() as i32;
             let screen_y = (pos.y as f64 + y * scale).round() as i32;
-            let screen_w = (width  * scale).round() as i32;
+            let screen_w = (width * scale).round() as i32;
             let screen_h = (height * scale).round() as i32;
 
             rdp::resize_embedded(&session, screen_x, screen_y, screen_w, screen_h)?;
@@ -204,7 +252,10 @@ pub fn rdp_set_visibility(
 }
 
 #[tauri::command]
-pub fn rdp_focus(state: tauri::State<AppState>, session_id: String) -> Result<(), crate::error::AppError> {
+pub fn rdp_focus(
+    state: tauri::State<AppState>,
+    session_id: String,
+) -> Result<(), crate::error::AppError> {
     if let Some(session) = state.rdp_sessions.get(&session_id) {
         let _ = rdp::send_command(session.value(), "FOCUS");
     }
@@ -212,7 +263,11 @@ pub fn rdp_focus(state: tauri::State<AppState>, session_id: String) -> Result<()
 }
 
 #[tauri::command]
-pub fn rdp_send_command(state: tauri::State<AppState>, session_id: String, command: String) -> Result<(), crate::error::AppError> {
+pub fn rdp_send_command(
+    state: tauri::State<AppState>,
+    session_id: String,
+    command: String,
+) -> Result<(), crate::error::AppError> {
     if let Some(session) = state.rdp_sessions.get(&session_id) {
         let _ = rdp::send_command(session.value(), &command);
     }
@@ -220,10 +275,7 @@ pub fn rdp_send_command(state: tauri::State<AppState>, session_id: String, comma
 }
 
 #[tauri::command]
-pub fn rdp_is_window_alive(
-    state: tauri::State<AppState>,
-    session_id: String,
-) -> bool {
+pub fn rdp_is_window_alive(state: tauri::State<AppState>, session_id: String) -> bool {
     if let Some(mut session) = state.rdp_sessions.get_mut(&session_id) {
         rdp::is_embedded_alive(&mut session)
     } else {

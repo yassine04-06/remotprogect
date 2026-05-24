@@ -1,5 +1,5 @@
-use crate::state::AppState;
 use crate::known_hosts;
+use crate::state::AppState;
 use serde::Serialize;
 
 #[derive(Serialize)]

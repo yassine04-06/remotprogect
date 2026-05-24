@@ -126,11 +126,15 @@ fn vnc_des_encrypt(password: &str, challenge: &[u8; 16]) -> [u8; 16] {
 // ── RFB handshake helpers ─────────────────────────────────
 
 fn read_exact(stream: &mut TcpStream, buf: &mut [u8]) -> Result<(), String> {
-    stream.read_exact(buf).map_err(|e| format!("VNC read error: {}", e))
+    stream
+        .read_exact(buf)
+        .map_err(|e| format!("VNC read error: {}", e))
 }
 
 fn write_all(stream: &mut TcpStream, data: &[u8]) -> Result<(), String> {
-    stream.write_all(data).map_err(|e| format!("VNC write error: {}", e))
+    stream
+        .write_all(data)
+        .map_err(|e| format!("VNC write error: {}", e))
 }
 
 fn rfb_handshake(stream: &mut TcpStream) -> Result<(), String> {
@@ -152,7 +156,10 @@ fn rfb_security(stream: &mut TcpStream, password: &str) -> Result<(), String> {
         let len = u32::from_be_bytes(len_buf) as usize;
         let mut msg = vec![0u8; len.min(256)];
         read_exact(stream, &mut msg)?;
-        return Err(format!("VNC server refused connection: {}", String::from_utf8_lossy(&msg)));
+        return Err(format!(
+            "VNC server refused connection: {}",
+            String::from_utf8_lossy(&msg)
+        ));
     }
 
     let mut types = vec![0u8; n];
@@ -165,7 +172,10 @@ fn rfb_security(stream: &mut TcpStream, password: &str) -> Result<(), String> {
     } else if types.contains(&1) {
         1u8
     } else {
-        return Err(format!("No supported security types. Server offers: {:?}", types));
+        return Err(format!(
+            "No supported security types. Server offers: {:?}",
+            types
+        ));
     };
 
     write_all(stream, &[chosen])?;
@@ -187,7 +197,10 @@ fn rfb_security(stream: &mut TcpStream, password: &str) -> Result<(), String> {
         let len = u32::from_be_bytes(len_buf) as usize;
         let mut msg = vec![0u8; len.min(256)];
         read_exact(stream, &mut msg)?;
-        return Err(format!("VNC authentication failed: {}", String::from_utf8_lossy(&msg)));
+        return Err(format!(
+            "VNC authentication failed: {}",
+            String::from_utf8_lossy(&msg)
+        ));
     }
 
     Ok(())
@@ -206,7 +219,9 @@ fn rfb_client_init(stream: &mut TcpStream) -> Result<(u16, u16, String), String>
     // HIGH-A8: A malicious server could declare an absurdly large framebuffer
     // (e.g. 65535×65535 = ~16 GB) to cause an OOM kill.  Cap at 64 MiB of raw
     // RGBA data (~4096×4096 at 32 bpp) before proceeding.
-    let fb_bytes = (width as usize).saturating_mul(height as usize).saturating_mul(4);
+    let fb_bytes = (width as usize)
+        .saturating_mul(height as usize)
+        .saturating_mul(4);
     if fb_bytes > MAX_FB_BYTES {
         return Err(format!(
             "VNC server declared a framebuffer of {}×{} ({} bytes) which exceeds \
@@ -268,13 +283,18 @@ fn rfb_set_encodings(stream: &mut TcpStream) -> Result<(), String> {
     write_all(stream, &msg)
 }
 
-fn rfb_request_update(stream: &mut TcpStream, incremental: bool, w: u16, h: u16) -> Result<(), String> {
+fn rfb_request_update(
+    stream: &mut TcpStream,
+    incremental: bool,
+    w: u16,
+    h: u16,
+) -> Result<(), String> {
     let mut msg = [0u8; 10];
-    msg[0] = 3;                                     // FramebufferUpdateRequest
+    msg[0] = 3; // FramebufferUpdateRequest
     msg[1] = if incremental { 1 } else { 0 };
     // x=0, y=0
-    msg[4..6].copy_from_slice(&w.to_be_bytes());    // width
-    msg[6..8].copy_from_slice(&h.to_be_bytes());    // height
+    msg[4..6].copy_from_slice(&w.to_be_bytes()); // width
+    msg[6..8].copy_from_slice(&h.to_be_bytes()); // height
     write_all(stream, &msg)
 }
 
@@ -289,20 +309,25 @@ fn run_vnc_session(
     cancel: &Arc<AtomicBool>,
 ) -> Result<(), String> {
     let addr = format!("{}:{}", host, port);
-    let mut stream = TcpStream::connect(&addr)
-        .map_err(|e| format!("VNC TCP connect failed: {}", e))?;
-    stream.set_read_timeout(Some(std::time::Duration::from_secs(30))).ok();
+    let mut stream =
+        TcpStream::connect(&addr).map_err(|e| format!("VNC TCP connect failed: {}", e))?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+        .ok();
 
     rfb_handshake(&mut stream)?;
     rfb_security(&mut stream, password)?;
     let (width, height, name) = rfb_client_init(&mut stream)?;
 
-    let _ = app.emit("vnc:init", VncInitEvent {
-        session_id: session_id.to_string(),
-        width,
-        height,
-        name: name.clone(),
-    });
+    let _ = app.emit(
+        "vnc:init",
+        VncInitEvent {
+            session_id: session_id.to_string(),
+            width,
+            height,
+            name: name.clone(),
+        },
+    );
 
     rfb_set_pixel_format(&mut stream)?;
     rfb_set_encodings(&mut stream)?;
@@ -318,7 +343,10 @@ fn run_vnc_session(
         let mut msg_type = [0u8; 1];
         match stream.read_exact(&mut msg_type) {
             Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::TimedOut || e.kind() == std::io::ErrorKind::WouldBlock => {
+            Err(e)
+                if e.kind() == std::io::ErrorKind::TimedOut
+                    || e.kind() == std::io::ErrorKind::WouldBlock =>
+            {
                 // Timeout — request a refresh and try again
                 rfb_request_update(&mut stream, true, width, height)?;
                 continue;
@@ -334,7 +362,9 @@ fn run_vnc_session(
                 let n_rects = u16::from_be_bytes([hdr[1], hdr[2]]) as usize;
 
                 for _ in 0..n_rects {
-                    if cancel.load(Ordering::Relaxed) { break; }
+                    if cancel.load(Ordering::Relaxed) {
+                        break;
+                    }
 
                     let mut rect_hdr = [0u8; 12];
                     read_exact(&mut stream, &mut rect_hdr)?;
@@ -343,9 +373,12 @@ fn run_vnc_session(
                     let y = u16::from_be_bytes([rect_hdr[2], rect_hdr[3]]);
                     let w = u16::from_be_bytes([rect_hdr[4], rect_hdr[5]]);
                     let h = u16::from_be_bytes([rect_hdr[6], rect_hdr[7]]);
-                    let encoding = i32::from_be_bytes([rect_hdr[8], rect_hdr[9], rect_hdr[10], rect_hdr[11]]);
+                    let encoding =
+                        i32::from_be_bytes([rect_hdr[8], rect_hdr[9], rect_hdr[10], rect_hdr[11]]);
 
-                    if w == 0 || h == 0 { continue; }
+                    if w == 0 || h == 0 {
+                        continue;
+                    }
 
                     match encoding {
                         0 => {
@@ -354,7 +387,9 @@ fn run_vnc_session(
                             // server can send a single rect that covers the entire
                             // screen, so the initial framebuffer check is not
                             // sufficient on its own.
-                            let n_bytes = (w as usize).saturating_mul(h as usize).saturating_mul(bytes_per_pixel);
+                            let n_bytes = (w as usize)
+                                .saturating_mul(h as usize)
+                                .saturating_mul(bytes_per_pixel);
                             if n_bytes > MAX_FB_BYTES {
                                 return Err(format!(
                                     "VNC rect {}×{} ({} bytes) exceeds 64 MiB safety limit",
@@ -370,13 +405,17 @@ fn run_vnc_session(
                             }
 
                             let b64 = base64::engine::general_purpose::STANDARD.encode(&pixel_data);
-                            let _ = app.emit("vnc:rect", VncRectEvent {
-                                session_id: session_id.to_string(),
-                                x, y,
-                                width: w,
-                                height: h,
-                                data: b64,
-                            });
+                            let _ = app.emit(
+                                "vnc:rect",
+                                VncRectEvent {
+                                    session_id: session_id.to_string(),
+                                    x,
+                                    y,
+                                    width: w,
+                                    height: h,
+                                    data: b64,
+                                },
+                            );
                         }
                         1 => {
                             // L-4 partial: CopyRect — body is 4 bytes (src_x, src_y).
@@ -385,19 +424,27 @@ fn run_vnc_session(
                             read_exact(&mut stream, &mut buf)?;
                             let src_x = u16::from_be_bytes([buf[0], buf[1]]);
                             let src_y = u16::from_be_bytes([buf[2], buf[3]]);
-                            let _ = app.emit("vnc:copyrect", VncCopyRectEvent {
-                                session_id: session_id.to_string(),
-                                x, y,
-                                width: w,
-                                height: h,
-                                src_x, src_y,
-                            });
+                            let _ = app.emit(
+                                "vnc:copyrect",
+                                VncCopyRectEvent {
+                                    session_id: session_id.to_string(),
+                                    x,
+                                    y,
+                                    width: w,
+                                    height: h,
+                                    src_x,
+                                    src_y,
+                                },
+                            );
                         }
                         _ => {
                             // Any encoding not advertised in SetEncodings shouldn't
                             // appear here. If a non-compliant server sends one we
                             // have no way to know its body size, so fail closed.
-                            return Err(format!("VNC server sent unsupported encoding: {}", encoding));
+                            return Err(format!(
+                                "VNC server sent unsupported encoding: {}",
+                                encoding
+                            ));
                         }
                     }
                 }
@@ -444,14 +491,20 @@ pub async fn vnc_native_connect(
 
     // ── Look up connection + resolve credentials ────────────
     let conn = state.db.get().map_err(|e| format!("DB pool: {}", e))?;
-    let all_conns = crate::database::get_connections(&conn).map_err(|e| format!("DB read: {}", e))?;
-    let connection = all_conns.into_iter().find(|c| c.id == connection_id)
+    let all_conns =
+        crate::database::get_connections(&conn).map_err(|e| format!("DB read: {}", e))?;
+    let connection = all_conns
+        .into_iter()
+        .find(|c| c.id == connection_id)
         .ok_or_else(|| "Connection not found".to_string())?;
 
     let host = connection.host.clone();
     let port = connection.port;
 
-    let key_guard = state.encryption_key.read().map_err(|e| format!("Lock: {}", e))?;
+    let key_guard = state
+        .encryption_key
+        .read()
+        .map_err(|e| format!("Lock: {}", e))?;
     let master_key = key_guard.as_ref().ok_or("Vault locked")?;
     let creds = resolve_credentials_internal(&conn, master_key, &connection_id)
         .map_err(|e| format!("Resolve creds: {}", e))?;
@@ -466,7 +519,12 @@ pub async fn vnc_native_connect(
     }
 
     let cancel = Arc::new(AtomicBool::new(false));
-    state.vnc_sessions.insert(session_id.clone(), VncSession { cancel: Arc::clone(&cancel) });
+    state.vnc_sessions.insert(
+        session_id.clone(),
+        VncSession {
+            cancel: Arc::clone(&cancel),
+        },
+    );
 
     let app_clone = app.clone();
     let sid = session_id.clone();
@@ -474,15 +532,21 @@ pub async fn vnc_native_connect(
     std::thread::spawn(move || {
         let result = run_vnc_session(&app_clone, &sid, &host, port, &pw, &cancel);
         if let Err(e) = result {
-            let _ = app_clone.emit("vnc:error", VncStatusEvent {
-                session_id: sid.clone(),
-                message: e,
-            });
+            let _ = app_clone.emit(
+                "vnc:error",
+                VncStatusEvent {
+                    session_id: sid.clone(),
+                    message: e,
+                },
+            );
         }
-        let _ = app_clone.emit("vnc:disconnected", VncStatusEvent {
-            session_id: sid,
-            message: "Disconnected".to_string(),
-        });
+        let _ = app_clone.emit(
+            "vnc:disconnected",
+            VncStatusEvent {
+                session_id: sid,
+                message: "Disconnected".to_string(),
+            },
+        );
     });
 
     Ok(())

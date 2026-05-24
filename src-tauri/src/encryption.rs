@@ -54,7 +54,13 @@ pub fn encrypt_v2(plaintext: &str, key: &[u8; KEY_LEN]) -> Result<String, String
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let ciphertext = cipher
-        .encrypt(nonce, Payload { msg: plaintext.as_bytes(), aad: V2_AAD })
+        .encrypt(
+            nonce,
+            Payload {
+                msg: plaintext.as_bytes(),
+                aad: V2_AAD,
+            },
+        )
         .map_err(|e| format!("Encryption failed: {}", e))?;
 
     let mut combined = Vec::with_capacity(NONCE_LEN + ciphertext.len());
@@ -90,8 +96,16 @@ fn decrypt_v2_inner(b64: &str, key: &[u8; KEY_LEN]) -> Result<String, String> {
     let cipher = Aes256Gcm::new(cipher_key);
 
     let mut plaintext_bytes = cipher
-        .decrypt(nonce, Payload { msg: ciphertext, aad: V2_AAD })
-        .map_err(|_| "Decryption failed — wrong master password or tampered ciphertext".to_string())?;
+        .decrypt(
+            nonce,
+            Payload {
+                msg: ciphertext,
+                aad: V2_AAD,
+            },
+        )
+        .map_err(|_| {
+            "Decryption failed — wrong master password or tampered ciphertext".to_string()
+        })?;
 
     let plaintext = String::from_utf8(plaintext_bytes.clone())
         .map_err(|e| format!("UTF-8 decode failed: {}", e))?;

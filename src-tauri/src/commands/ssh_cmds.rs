@@ -1,7 +1,7 @@
-use crate::state::AppState;
+use crate::commands::credentials::resolve_credentials_internal;
 use crate::database;
 use crate::ssh::{self, JumpHostParams};
-use crate::commands::credentials::resolve_credentials_internal;
+use crate::state::AppState;
 use crate::{lock_err, touch_activity};
 
 /// HIGH-A1: now async — russh requires an async runtime.
@@ -19,7 +19,9 @@ pub async fn ssh_connect(
 ) -> Result<(), crate::error::AppError> {
     // ── Extract everything from state before the first .await ─────────────────
     // (keeps the borrow short; avoids holding DashMap refs across awaits)
-    let db = state.db.get()
+    let db = state
+        .db
+        .get()
         .map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
 
     let all_conns = database::get_connections(&db)?;
@@ -48,13 +50,14 @@ pub async fn ssh_connect(
     let jump: Option<JumpHostParams> = if let Some(ref jid) = jump_host_id {
         let all = database::get_connections(&db)?;
         if let Some(jconn) = all.into_iter().find(|c| &c.id == jid) {
-            let jcreds = resolve_credentials_internal(&db, &master_key, jid)
-                .unwrap_or_else(|_| crate::commands::credentials::ResolvedCredentials {
+            let jcreds = resolve_credentials_internal(&db, &master_key, jid).unwrap_or_else(|_| {
+                crate::commands::credentials::ResolvedCredentials {
                     username: jconn.username.clone(),
                     password_decrypted: None,
                     private_key_decrypted: None,
                     domain: None,
-                });
+                }
+            });
             Some(JumpHostParams {
                 host: jconn.host,
                 port: jconn.port,
@@ -71,7 +74,9 @@ pub async fn ssh_connect(
 
     // ── Resolve private key from vault (ssh_key_id overrides credential profile)
     let key_pem: Option<String> = if let Some(ref kid) = ssh_key_id {
-        let db2 = state.db.get()
+        let db2 = state
+            .db
+            .get()
             .map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
         let row = database::ssh_key_get(&db2, kid)?;
         let plain = crate::encryption::decrypt_auto(&row.private_key_encrypted, &master_key)
@@ -115,7 +120,13 @@ pub async fn ssh_connect(
 
     if let Ok(db) = state.db.get() {
         let _ = database::audit_log_insert(
-            &db, "connect", "connection", &session_id, &host, "success", "",
+            &db,
+            "connect",
+            "connection",
+            &session_id,
+            &host,
+            "success",
+            "",
         );
     }
 
@@ -128,7 +139,8 @@ pub fn ssh_send_input(
     session_id: String,
     data: String,
 ) -> Result<(), crate::error::AppError> {
-    let session = state.ssh_sessions
+    let session = state
+        .ssh_sessions
         .get(&session_id)
         .ok_or("SSH session not found")?;
     ssh::ssh_send_input(&session, &data)
@@ -141,7 +153,8 @@ pub fn ssh_resize(
     rows: u16,
     cols: u16,
 ) -> Result<(), crate::error::AppError> {
-    let session = state.ssh_sessions
+    let session = state
+        .ssh_sessions
         .get(&session_id)
         .ok_or("SSH session not found")?;
     ssh::ssh_resize(&session, rows, cols)

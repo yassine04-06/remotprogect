@@ -126,21 +126,21 @@ pub struct ServerConnection {
     pub credential_profile_id: Option<String>,
     pub override_credentials: bool,
     pub jump_host_id: Option<String>,
-    pub use_ssh_agent: bool,          // 90-2 (v9)
-    pub ssh_key_id: Option<String>,   // 90-1 (v9)
-    pub tags: Option<String>,         // 90-7 (v10) comma-separated
+    pub use_ssh_agent: bool,            // 90-2 (v9)
+    pub ssh_key_id: Option<String>,     // 90-1 (v9)
+    pub tags: Option<String>,           // 90-7 (v10) comma-separated
     pub last_connected_at: Option<i64>, // 90-7 (v10) unix timestamp
-    pub is_favorite: bool,            // 90-7 (v10)
-    pub notes: Option<String>,        // 90-8 (v10)
-    pub use_ftps: bool,               // 90-14 (v11)
-    pub rdp_nla: bool,                // 90-12 (v11)
+    pub is_favorite: bool,              // 90-7 (v10)
+    pub notes: Option<String>,          // 90-8 (v10)
+    pub use_ftps: bool,                 // 90-14 (v11)
+    pub rdp_nla: bool,                  // 90-12 (v11)
     #[ts(type = "'tcp' | 'socket' | 'https'")]
-    pub docker_transport: String,     // 90-13 (v11) "tcp" | "socket" | "https" (H-3)
+    pub docker_transport: String, // 90-13 (v11) "tcp" | "socket" | "https" (H-3)
     pub docker_socket_path: Option<String>, // 90-13 (v11) path to unix socket
-    pub docker_tls_ca_path: Option<String>,   // H-3 (v12) CA cert PEM path
+    pub docker_tls_ca_path: Option<String>, // H-3 (v12) CA cert PEM path
     pub docker_tls_cert_path: Option<String>, // H-3 (v12) client cert PEM path
-    pub docker_tls_key_path: Option<String>,  // H-3 (v12) client key PEM path
-    pub proxmox_api_token_id: Option<String>,             // 90-15 (v11)
+    pub docker_tls_key_path: Option<String>, // H-3 (v12) client key PEM path
+    pub proxmox_api_token_id: Option<String>, // 90-15 (v11)
     pub proxmox_api_token_secret_encrypted: Option<String>, // 90-15 (v11)
     pub created_at: String,
     pub updated_at: String,

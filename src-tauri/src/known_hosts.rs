@@ -43,7 +43,10 @@ pub enum VerifyResult {
     /// Key matches a previously trusted entry.
     Trusted,
     /// Host has never been seen; caller should prompt the user.
-    Unknown { fingerprint_sha256: String, key_type: String },
+    Unknown {
+        fingerprint_sha256: String,
+        key_type: String,
+    },
     /// Host is known but the key has changed — possible MITM. Caller must
     /// refuse to connect and surface the change to the user.
     Mismatch {
@@ -119,7 +122,8 @@ pub fn probe_host_key(host: &str, port: i32) -> Result<ProbedHostKey, String> {
 
     let mut sess = Session::new().map_err(|e| format!("ssh2 session error: {}", e))?;
     sess.set_tcp_stream(tcp);
-    sess.handshake().map_err(|e| format!("SSH handshake error: {}", e))?;
+    sess.handshake()
+        .map_err(|e| format!("SSH handshake error: {}", e))?;
 
     let (raw_key, key_type) = sess.host_key().ok_or("Server presented no host key")?;
     let key_type_str = match key_type {
@@ -138,7 +142,13 @@ pub fn probe_host_key(host: &str, port: i32) -> Result<ProbedHostKey, String> {
     })
 }
 
-pub fn verify(data_dir: &str, host: &str, port: i32, key_type: &str, raw_key: &[u8]) -> VerifyResult {
+pub fn verify(
+    data_dir: &str,
+    host: &str,
+    port: i32,
+    key_type: &str,
+    raw_key: &[u8],
+) -> VerifyResult {
     let map = load(data_dir);
     let id = host_key_id(host, port);
     let fp = fingerprint_sha256(raw_key);
@@ -227,7 +237,10 @@ mod tests {
         let raw = fake_key(0xAB);
         trust(dir, "host.example.com", 22, "ssh-ed25519", &raw).expect("trust");
         assert!(
-            matches!(verify(dir, "host.example.com", 22, "ssh-ed25519", &raw), VerifyResult::Trusted),
+            matches!(
+                verify(dir, "host.example.com", 22, "ssh-ed25519", &raw),
+                VerifyResult::Trusted
+            ),
             "key matches stored entry → Trusted"
         );
     }
@@ -249,7 +262,7 @@ mod tests {
         let tmp = tmp_dir();
         let dir = tmp.path().to_str().unwrap();
         let original = fake_key(0x01);
-        let changed   = fake_key(0x02);
+        let changed = fake_key(0x02);
         trust(dir, "host.example.com", 22, "ssh-ed25519", &original).expect("trust");
         let result = verify(dir, "host.example.com", 22, "ssh-ed25519", &changed);
         assert!(
@@ -268,7 +281,10 @@ mod tests {
         trust(dir, "host.example.com", 22, "ssh-ed25519", &raw).expect("trust");
         forget(dir, "host.example.com", 22).expect("forget");
         assert!(
-            matches!(verify(dir, "host.example.com", 22, "ssh-ed25519", &raw), VerifyResult::Unknown { .. }),
+            matches!(
+                verify(dir, "host.example.com", 22, "ssh-ed25519", &raw),
+                VerifyResult::Unknown { .. }
+            ),
             "after forget the host should be unknown again"
         );
     }
@@ -287,15 +303,24 @@ mod tests {
     fn different_ports_are_independent() {
         let tmp = tmp_dir();
         let dir = tmp.path().to_str().unwrap();
-        let key_22   = fake_key(0x04);
+        let key_22 = fake_key(0x04);
         let key_2222 = fake_key(0x05);
-        trust(dir, "host.example.com", 22,   "ssh-ed25519", &key_22).expect("trust :22");
+        trust(dir, "host.example.com", 22, "ssh-ed25519", &key_22).expect("trust :22");
         trust(dir, "host.example.com", 2222, "ssh-ed25519", &key_2222).expect("trust :2222");
 
-        assert!(matches!(verify(dir, "host.example.com", 22,   "ssh-ed25519", &key_22),   VerifyResult::Trusted));
-        assert!(matches!(verify(dir, "host.example.com", 2222, "ssh-ed25519", &key_2222), VerifyResult::Trusted));
+        assert!(matches!(
+            verify(dir, "host.example.com", 22, "ssh-ed25519", &key_22),
+            VerifyResult::Trusted
+        ));
+        assert!(matches!(
+            verify(dir, "host.example.com", 2222, "ssh-ed25519", &key_2222),
+            VerifyResult::Trusted
+        ));
         // Correct host, wrong port's key → Mismatch
-        assert!(matches!(verify(dir, "host.example.com", 22, "ssh-ed25519", &key_2222), VerifyResult::Mismatch { .. }));
+        assert!(matches!(
+            verify(dir, "host.example.com", 22, "ssh-ed25519", &key_2222),
+            VerifyResult::Mismatch { .. }
+        ));
     }
 
     // ── fingerprint format ────────────────────────────────────────────────────
