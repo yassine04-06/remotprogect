@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NexoRC — One Encrypted Vault for All Your Infrastructure</title>
+  <meta name="description" content="SSH, RDP, VNC, SFTP, Docker and Proxmox — secured by AES-256-GCM, managed from a single pane of glass." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bg: '#0a0a0f',
+            surface: '#111118',
+            accent: '#6366f1',
+            violet: '#8b5cf6',
+            textPrimary: '#e2e8f0',
+            muted: '#64748b',
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0f;
+      --surface: #111118;
+      --accent: #6366f1;
+      --violet: #8b5cf6;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --border: rgba(255,255,255,0.08);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* ── Glass ── */
+    .glass {
+      background: rgba(17, 17, 24, 0.7);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+    }
+
+    .glass-card {
+      background: rgba(17, 17, 24, 0.6);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      transition: border-color .3s, box-shadow .3s, transform .3s;
+    }
+
+    .glass-card:hover {
+      border-color: rgba(99,102,241,0.35);
+      box-shadow: 0 0 32px rgba(99,102,241,0.12);
+      transform: translateY(-3px);
+    }
+
+    /* ── Navbar ── */
+    #navbar {
+      transition: background .3s, border-color .3s, backdrop-filter .3s;
+    }
+    #navbar.scrolled {
+      background: rgba(10, 10, 15, 0.92);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Hero glow ── */
+    .hero-glow {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .hero-glow::before {
+      content: '';
+      position: absolute;
+      top: -20%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 900px;
+      height: 600px;
+      background: radial-gradient(ellipse at center, rgba(99,102,241,0.18) 0%, rgba(139,92,246,0.08) 45%, transparent 70%);
+      animation: glowPulse 6s ease-in-out infinite;
+    }
+    .hero-glow::after {
+      content: '';
+      position: absolute;
+      top: 10%;
+      left: 30%;
+      width: 400px;
+      height: 400px;
+      background: radial-gradient(circle, rgba(139,92,246,0.1) 0%, transparent 65%);
+      animation: glowPulse 8s ease-in-out 2s infinite;
+    }
+
+    @keyframes glowPulse {
+      0%, 100% { opacity: 0.7; transform: translateX(-50%) scale(1); }
+      50% { opacity: 1; transform: translateX(-50%) scale(1.08); }
+    }
+
+    /* ── Gradient text ── */
+    .gradient-text {
+      background: linear-gradient(135deg, #e2e8f0 0%, #a5b4fc 50%, #8b5cf6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff;
+      border: none;
+      transition: opacity .2s, transform .2s, box-shadow .2s;
+      box-shadow: 0 0 20px rgba(99,102,241,0.3);
+    }
+    .btn-primary:hover {
+      opacity: .9;
+      transform: translateY(-1px);
+      box-shadow: 0 0 30px rgba(99,102,241,0.5);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+      transition: border-color .2s, background .2s, transform .2s;
+    }
+    .btn-ghost:hover {
+      border-color: rgba(99,102,241,0.5);
+      background: rgba(99,102,241,0.08);
+      transform: translateY(-1px);
+    }
+
+    /* ── Terminal ── */
+    .terminal {
+      background: #0d0d14;
+      border: 1px solid rgba(99,102,241,0.25);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 0 60px rgba(99,102,241,0.15), 0 32px 64px rgba(0,0,0,0.5);
+    }
+    .terminal-bar {
+      background: #1a1a24;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot-red { background: #ff5f57; }
+    .dot-yellow { background: #ffbd2e; }
+    .dot-green { background: #28c840; }
+
+    .terminal-body {
+      padding: 20px 24px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.7;
+      min-height: 220px;
+    }
+
+    .term-prompt { color: #6366f1; }
+    .term-path { color: #8b5cf6; }
+    .term-cmd { color: #e2e8f0; }
+    .term-out { color: #64748b; }
+    .term-ok { color: #22c55e; }
+    .term-info { color: #06b6d4; }
+
+    /* Typing cursor */
+    .cursor {
+      display: inline-block;
+      width: 8px;
+      height: 14px;
+      background: #6366f1;
+      vertical-align: middle;
+      margin-left: 2px;
+      animation: blink 1s step-start infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* Typing animation */
+    .typing-line {
+      overflow: hidden;
+      white-space: nowrap;
+      border-right: 2px solid #6366f1;
+      width: 0;
+      animation: typing 2s steps(40) forwards, removeCursor .1s 2s forwards;
+    }
+    @keyframes typing {
+      to { width: 100%; }
+    }
+    @keyframes removeCursor {
+      to { border-right-color: transparent; }
+    }
+
+    /* Fade-in for lines */
+    .term-fade {
+      opacity: 0;
+      animation: fadeIn .4s forwards;
+    }
+    @keyframes fadeIn { to { opacity: 1; } }
+
+    /* ── Scroll reveal ── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity .6s ease, transform .6s ease;
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .reveal-delay-1 { transition-delay: .1s; }
+    .reveal-delay-2 { transition-delay: .2s; }
+    .reveal-delay-3 { transition-delay: .3s; }
+    .reveal-delay-4 { transition-delay: .4s; }
+    .reveal-delay-5 { transition-delay: .5s; }
+    .reveal-delay-6 { transition-delay: .6s; }
+
+    /* ── Stats bar ── */
+    .stat-divider {
+      width: 1px;
+      background: var(--border);
+    }
+
+    /* ── Protocol pills ── */
+    .protocol-pill {
+      background: rgba(99,102,241,0.08);
+      border: 1px solid rgba(99,102,241,0.2);
+      border-radius: 50px;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: background .25s, border-color .25s, transform .25s, box-shadow .25s;
+      cursor: default;
+      white-space: nowrap;
+      position: relative;
+    }
+    .protocol-pill:hover {
+      background: rgba(99,102,241,0.18);
+      border-color: rgba(99,102,241,0.5);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(99,102,241,0.2);
+    }
+    .protocol-tooltip {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1a1a2e;
+      border: 1px solid rgba(99,102,241,0.3);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s;
+      z-index: 10;
+    }
+    .protocol-pill:hover .protocol-tooltip { opacity: 1; }
+
+    /* ── Broadcast terminal ── */
+    .server-response {
+      opacity: 0;
+      transform: translateX(-8px);
+      animation: slideIn .4s forwards;
+    }
+    @keyframes slideIn {
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* ── Status dot pulse ── */
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 6px #22c55e;
+      animation: statusPulse 2s ease-in-out infinite;
+    }
+    @keyframes statusPulse {
+      0%, 100% { box-shadow: 0 0 4px #22c55e; }
+      50% { box-shadow: 0 0 12px #22c55e, 0 0 20px rgba(34,197,94,0.4); }
+    }
+
+    /* ── Download CTA ── */
+    .cta-gradient {
+      background: linear-gradient(135deg, rgba(99,102,241,0.3) 0%, rgba(139,92,246,0.3) 100%);
+      border: 1px solid rgba(99,102,241,0.3);
+      position: relative;
+      overflow: hidden;
+    }
+    .cta-gradient::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(99,102,241,0.05), rgba(139,92,246,0.05));
+    }
+
+    /* ── Code block ── */
+    .code-block {
+      background: #0d0d14;
+      border: 1px solid rgba(99,102,241,0.2);
+      border-radius: 10px;
+      padding: 20px 24px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+    .code-comment { color: #4a5568; }
+    .code-key { color: #8b5cf6; }
+    .code-val { color: #22c55e; }
+    .code-num { color: #f59e0b; }
+    .code-str { color: #06b6d4; }
+    .code-punc { color: #64748b; }
+
+    /* ── OS Badge ── */
+    .os-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 18px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      font-size: 14px;
+      transition: background .2s;
+    }
+    .os-badge:hover { background: rgba(255,255,255,0.1); }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 4px; }
+
+    /* ── Nav links ── */
+    .nav-link {
+      color: var(--muted);
+      transition: color .2s;
+      font-size: 14px;
+    }
+    .nav-link:hover { color: var(--text); }
+
+    /* ── Section heading line ── */
+    .section-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: #6366f1;
+      margin-bottom: 12px;
+    }
+    .section-tag::before, .section-tag::after {
+      content: '';
+      display: block;
+      width: 24px;
+      height: 1px;
+      background: #6366f1;
+      opacity: .5;
+    }
+
+    /* ── Check icon ── */
+    .check-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: rgba(99,102,241,0.15);
+      border: 1px solid rgba(99,102,241,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: #6366f1;
+    }
+
+    /* ── Mobile menu ── */
+    #mobile-menu {
+      display: none;
+    }
+    #mobile-menu.open {
+      display: block;
+    }
+
+    /* ── Horizontal scroll ── */
+    .proto-scroll {
+      overflow-x: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(99,102,241,0.3) transparent;
+      padding-bottom: 8px;
+    }
+    .proto-scroll::-webkit-scrollbar { height: 4px; }
+    .proto-scroll::-webkit-scrollbar-track { background: transparent; }
+    .proto-scroll::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 2px; }
+
+    /* ── Grid layout ── */
+    @media (max-width: 768px) {
+      .hero-headline { font-size: 2.4rem !important; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════
+     NAVBAR
+═══════════════════════════════════════════ -->
+<nav id="navbar" class="fixed top-0 left-0 right-0 z-50 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-7xl mx-auto flex items-center justify-between h-16">
+
+    <!-- Wordmark -->
+    <a href="#" class="flex items-center gap-1 text-white font-bold text-lg tracking-widest uppercase select-none">
+      NEXORC<span class="inline-block w-1.5 h-1.5 rounded-full bg-accent mb-2 ml-0.5"></span>
+    </a>
+
+    <!-- Desktop links -->
+    <div class="hidden md:flex items-center gap-8">
+      <a href="#features" class="nav-link">Features</a>
+      <a href="#security" class="nav-link">Security</a>
+      <a href="#protocols" class="nav-link">Protocols</a>
+      <a href="#download" class="nav-link">Download</a>
+    </div>
+
+    <!-- Right CTA -->
+    <div class="hidden md:flex items-center gap-3">
+      <a href="#download" class="btn-primary px-5 py-2 rounded-lg text-sm font-semibold">Download Free</a>
+    </div>
+
+    <!-- Hamburger -->
+    <button id="hamburger" class="md:hidden p-2 rounded-lg text-muted hover:text-white transition-colors" aria-label="Toggle menu">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <line x1="2" y1="6" x2="20" y2="6"/>
+        <line x1="2" y1="11" x2="20" y2="11"/>
+        <line x1="2" y1="16" x2="20" y2="16"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Mobile menu -->
+  <div id="mobile-menu" class="glass md:hidden px-4 pb-4 rounded-xl mt-1">
+    <div class="flex flex-col gap-3 pt-3">
+      <a href="#features" class="nav-link py-2 border-b border-white/5">Features</a>
+      <a href="#security" class="nav-link py-2 border-b border-white/5">Security</a>
+      <a href="#protocols" class="nav-link py-2 border-b border-white/5">Protocols</a>
+      <a href="#download" class="nav-link py-2">Download</a>
+      <a href="#download" class="btn-primary text-center px-5 py-2.5 rounded-lg text-sm font-semibold mt-2">Download Free</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════
+     HERO
+═══════════════════════════════════════════ -->
+<section class="relative min-h-screen flex flex-col items-center justify-center pt-24 pb-16 px-4 sm:px-6 lg:px-8 overflow-hidden">
+  <div class="hero-glow"></div>
+
+  <!-- Grid overlay -->
+  <div class="absolute inset-0 z-0" style="background-image: linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px); background-size: 48px 48px;"></div>
+
+  <div class="relative z-10 max-w-4xl mx-auto text-center">
+    <!-- Badge -->
+    <div class="inline-flex items-center gap-2 glass px-4 py-1.5 rounded-full text-sm text-muted mb-8 reveal">
+      <span class="status-dot"></span>
+      <span>Open Source · Free Forever · No Telemetry</span>
+    </div>
+
+    <!-- Headline -->
+    <h1 class="hero-headline font-black text-5xl sm:text-6xl lg:text-7xl leading-tight mb-6 reveal reveal-delay-1" style="font-size: clamp(2.4rem, 7vw, 4.5rem);">
+      <span class="gradient-text">Your entire infrastructure.</span><br/>
+      <span class="text-white">One encrypted vault.</span>
+    </h1>
+
+    <!-- Sub -->
+    <p class="text-lg sm:text-xl text-muted max-w-2xl mx-auto mb-10 reveal reveal-delay-2" style="line-height:1.7;">
+      SSH, RDP, VNC, SFTP, Docker and Proxmox — secured by AES-256-GCM,<br class="hidden sm:block"/> managed from a single pane of glass.
+    </p>
+
+    <!-- CTA buttons -->
+    <div class="flex flex-wrap items-center justify-center gap-4 mb-14 reveal reveal-delay-3">
+      <a href="#download" class="btn-primary flex items-center gap-2 px-7 py-3.5 rounded-xl text-sm font-semibold">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 12h12v1.5H2V12zm5.25-1.56V2h1.5v8.44l3.22-3.22 1.06 1.06L8 12.34l-4.03-4.06 1.06-1.06 3.22 3.22z"/></svg>
+        Download for Windows
+      </a>
+      <a href="https://github.com" target="_blank" rel="noopener" class="btn-ghost flex items-center gap-2 px-7 py-3.5 rounded-xl text-sm font-semibold">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        View Source
+      </a>
+    </div>
+
+    <!-- Terminal mockup -->
+    <div class="terminal max-w-2xl mx-auto reveal reveal-delay-4">
+      <div class="terminal-bar">
+        <div class="dot dot-red"></div>
+        <div class="dot dot-yellow"></div>
+        <div class="dot dot-green"></div>
+        <span class="ml-4 text-xs text-muted font-mono">nexorc — ssh — prod-web-01 — 80×24</span>
+        <span class="ml-auto flex items-center gap-1.5">
+          <span class="status-dot" style="width:7px;height:7px;"></span>
+          <span class="text-xs text-muted">Connected</span>
+        </span>
+      </div>
+      <div class="terminal-body" id="hero-terminal">
+        <div><span class="term-out">NexoRC v1.0.0 — AES-256-GCM vault unlocked ✓</span></div>
+        <div class="mt-1"><span class="term-out">Connecting to <span class="term-info">prod-web-01</span> via SSH...</span></div>
+        <div class="mt-1"><span class="term-ok">✔ Connected in 142ms</span></div>
+        <div class="mt-2" id="hero-cmd-line">
+          <span class="term-prompt">user</span><span class="term-punc" style="color:#64748b">@</span><span class="term-path">prod-web-01</span><span class="term-punc" style="color:#64748b">:~$</span>
+          <span class="term-cmd" id="hero-typed"> </span><span class="cursor" id="hero-cursor"></span>
+        </div>
+        <div id="hero-output" class="mt-1"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     STATS BAR
+═══════════════════════════════════════════ -->
+<section class="py-6 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-3xl mx-auto">
+    <div class="glass rounded-2xl p-1 reveal">
+      <div class="flex flex-col sm:flex-row items-center">
+
+        <div class="flex-1 flex flex-col items-center justify-center py-5 px-6">
+          <span class="text-3xl font-black gradient-text">7</span>
+          <span class="text-sm text-muted mt-1 font-medium tracking-wide">Protocols Supported</span>
+        </div>
+
+        <div class="hidden sm:block stat-divider self-stretch my-4"></div>
+        <div class="block sm:hidden w-4/5 h-px bg-white/5 my-1"></div>
+
+        <div class="flex-1 flex flex-col items-center justify-center py-5 px-6">
+          <span class="text-2xl font-black gradient-text tracking-tight">AES-256-GCM</span>
+          <span class="text-sm text-muted mt-1 font-medium tracking-wide">Vault Encryption</span>
+        </div>
+
+        <div class="hidden sm:block stat-divider self-stretch my-4"></div>
+        <div class="block sm:hidden w-4/5 h-px bg-white/5 my-1"></div>
+
+        <div class="flex-1 flex flex-col items-center justify-center py-5 px-6">
+          <span class="text-3xl font-black gradient-text">0</span>
+          <span class="text-sm text-muted mt-1 font-medium tracking-wide">Cloud Dependencies</span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     FEATURES GRID
+═══════════════════════════════════════════ -->
+<section id="features" class="py-24 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-6xl mx-auto">
+
+    <div class="text-center mb-16 reveal">
+      <div class="section-tag">Core Features</div>
+      <h2 class="text-3xl sm:text-4xl font-bold text-white mt-2">Everything you need.<br/>Nothing you don't.</h2>
+      <p class="text-muted mt-4 max-w-xl mx-auto">A lean, powerful workspace built for engineers who manage real infrastructure at scale.</p>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+
+      <!-- Card 1 -->
+      <div class="glass-card rounded-2xl p-6 reveal reveal-delay-1">
+        <div class="text-3xl mb-4">🔐</div>
+        <h3 class="text-lg font-bold text-white mb-2">Encrypted Vault</h3>
+        <p class="text-muted text-sm leading-relaxed">AES-256-GCM with PBKDF2 600k iterations. Zero plaintext ever stored on disk. Your secrets stay secret.</p>
+      </div>
+
+      <!-- Card 2 -->
+      <div class="glass-card rounded-2xl p-6 reveal reveal-delay-2">
+        <div class="text-3xl mb-4">🖥️</div>
+        <h3 class="text-lg font-bold text-white mb-2">All Protocols</h3>
+        <p class="text-muted text-sm leading-relaxed">SSH · RDP · VNC · SFTP · FTP · Proxmox · Docker in one unified workspace. Replace five tools with one.</p>
+      </div>
+
+      <!-- Card 3 -->
+      <div class="glass-card rounded-2xl p-6 reveal reveal-delay-3">
+        <div class="text-3xl mb-4">👤</div>
+        <h3 class="text-lg font-bold text-white mb-2">Credential Profiles</h3>
+        <p class="text-muted text-sm leading-relaxed">Define credentials once, link to unlimited connections. Rotate once, done. No more copy-paste secrets.</p>
+      </div>
+
+      <!-- Card 4 -->
+      <div class="glass-card rounded-2xl p-6 reveal reveal-delay-4">
+        <div class="text-3xl mb-4">⚡</div>
+        <h3 class="text-lg font-bold text-white mb-2">Broadcast Mode</h3>
+        <p class="text-muted text-sm leading-relaxed">Execute one command across every SSH server simultaneously. Perfect for fleet operations and patch rollouts.</p>
+      </div>
+
+      <!-- Card 5 -->
+      <div class="glass-card rounded-2xl p-6 reveal reveal-delay-5">
+        <div class="text-3xl mb-4">📊</div>
+        <h3 class="text-lg font-bold text-white mb-2">Health Dashboard</h3>
+        <p class="text-muted text-sm leading-relaxed">Live connectivity status for your entire infrastructure at a glance. Know what's online before it matters.</p>
+      </div>
+
+      <!-- Card 6 -->
+      <div class="glass-card rounded-2xl p-6 reveal reveal-delay-6">
+        <div class="text-3xl mb-4">📋</div>
+        <h3 class="text-lg font-bold text-white mb-2">Audit Log</h3>
+        <p class="text-muted text-sm leading-relaxed">Every action logged with a timestamp. Full local traceability, zero cloud uploads. Compliance-ready out of the box.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     SECURITY DEEP-DIVE
+═══════════════════════════════════════════ -->
+<section id="security" class="py-24 px-4 sm:px-6 lg:px-8" style="background: linear-gradient(180deg, transparent, rgba(99,102,241,0.03), transparent);">
+  <div class="max-w-6xl mx-auto">
+
+    <div class="text-center mb-16 reveal">
+      <div class="section-tag">Security</div>
+      <h2 class="text-3xl sm:text-4xl font-bold text-white mt-2">Built paranoid.<br/>By design.</h2>
+      <p class="text-muted mt-4 max-w-xl mx-auto">Security isn't a feature checkbox. Every architectural decision was made with credential safety as the top priority.</p>
+    </div>
+
+    <div class="glass rounded-2xl p-8 sm:p-12 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center reveal">
+
+      <!-- Left: security facts -->
+      <div class="space-y-8">
+        <div class="flex gap-4">
+          <div class="check-icon mt-0.5">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1.5 5.5 4.5 8.5 9.5 2.5"/></svg>
+          </div>
+          <div>
+            <h4 class="text-white font-semibold mb-1">AES-256-GCM Authenticated Encryption</h4>
+            <p class="text-muted text-sm leading-relaxed">Every vault entry is independently encrypted with a unique nonce. GCM mode provides both confidentiality and data integrity — ciphertext tampering is detected.</p>
+          </div>
+        </div>
+
+        <div class="flex gap-4">
+          <div class="check-icon mt-0.5">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1.5 5.5 4.5 8.5 9.5 2.5"/></svg>
+          </div>
+          <div>
+            <h4 class="text-white font-semibold mb-1">PBKDF2-HMAC-SHA256, 600,000 Iterations</h4>
+            <p class="text-muted text-sm leading-relaxed">Your master password is never stored. It's stretched to a 256-bit key via 600k PBKDF2 rounds — far exceeding NIST and OWASP minimum recommendations.</p>
+          </div>
+        </div>
+
+        <div class="flex gap-4">
+          <div class="check-icon mt-0.5">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1.5 5.5 4.5 8.5 9.5 2.5"/></svg>
+          </div>
+          <div>
+            <h4 class="text-white font-semibold mb-1">Zero Plaintext — Vault-Only, Local-Only</h4>
+            <p class="text-muted text-sm leading-relaxed">Credentials are decrypted in memory only when actively used, immediately scrubbed after. Nothing is written to disk unencrypted. Zero network egress of secrets.</p>
+          </div>
+        </div>
+
+        <div class="flex gap-4">
+          <div class="check-icon mt-0.5">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1.5 5.5 4.5 8.5 9.5 2.5"/></svg>
+          </div>
+          <div>
+            <h4 class="text-white font-semibold mb-1">Auto-Lock & Session Timeout</h4>
+            <p class="text-muted text-sm leading-relaxed">Configurable inactivity timer re-encrypts the vault and requires master password re-entry. Walk away from your desk with confidence.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: code block -->
+      <div>
+        <div class="code-block">
+          <div><span class="code-comment">// NexoRC Vault Format v2</span></div>
+          <div class="mt-1"><span class="code-punc">{</span></div>
+          <div class="ml-4">
+            <span class="code-key">"schema"</span><span class="code-punc">: </span><span class="code-str">"nexorc-vault-v2"</span><span class="code-punc">,</span>
+          </div>
+          <div class="ml-4">
+            <span class="code-key">"kdf"</span><span class="code-punc">: </span><span class="code-str">"pbkdf2-hmac-sha256"</span><span class="code-punc">,</span>
+          </div>
+          <div class="ml-4">
+            <span class="code-key">"iterations"</span><span class="code-punc">: </span><span class="code-num">600000</span><span class="code-punc">,</span>
+          </div>
+          <div class="ml-4">
+            <span class="code-key">"salt"</span><span class="code-punc">: </span><span class="code-str">"8xKm...q9Rn"</span><span class="code-punc">,</span>
+          </div>
+          <div class="ml-4">
+            <span class="code-key">"cipher"</span><span class="code-punc">: </span><span class="code-str">"aes-256-gcm"</span><span class="code-punc">,</span>
+          </div>
+          <div class="ml-4">
+            <span class="code-key">"nonce"</span><span class="code-punc">: </span><span class="code-str">"Zk9mN3R2..."</span><span class="code-punc">,</span>
+          </div>
+          <div class="ml-4">
+            <span class="code-key">"ciphertext"</span><span class="code-punc">: </span><span class="code-str">"v2:Zk9mN3R..."</span><span class="code-punc">,</span>
+          </div>
+          <div class="ml-4">
+            <span class="code-key">"tag"</span><span class="code-punc">: </span><span class="code-str">"aW50ZWdy..."</span>
+          </div>
+          <div><span class="code-punc">}</span></div>
+          <div class="mt-3 pt-3" style="border-top: 1px solid rgba(255,255,255,0.05);">
+            <span class="code-comment">// Plaintext: never written to disk.</span><br/>
+            <span class="code-comment">// Master password: never stored.</span><br/>
+            <span class="code-comment">// Cloud: unreachable by design.</span>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3 mt-4 text-xs text-muted">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#6366f1" stroke-width="1.5"><rect x="1" y="6" width="12" height="7" rx="2"/><path d="M4 6V4a3 3 0 016 0v2"/></svg>
+          <span>Vault file is opaque binary — no metadata leakage</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     PROTOCOL SHOWCASE
+═══════════════════════════════════════════ -->
+<section id="protocols" class="py-24 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-6xl mx-auto">
+
+    <div class="text-center mb-14 reveal">
+      <div class="section-tag">Protocols</div>
+      <h2 class="text-3xl sm:text-4xl font-bold text-white mt-2">One tool. Every protocol.</h2>
+      <p class="text-muted mt-4 max-w-xl mx-auto">Stop context-switching between PuTTY, MobaXterm, Filezilla and browser panels. NexoRC brings them all home.</p>
+    </div>
+
+    <div class="proto-scroll reveal">
+      <div class="flex gap-4 pb-2" style="min-width: max-content; margin: 0 auto; justify-content: center;">
+
+        <div class="protocol-pill">
+          <span style="font-size:20px;">🖧</span>
+          <span class="text-white font-semibold text-sm">SSH</span>
+          <div class="protocol-tooltip">Secure Shell — terminal, tunnels, agent forwarding, ProxyJump, key vault</div>
+        </div>
+
+        <div class="protocol-pill">
+          <span style="font-size:20px;">🖥️</span>
+          <span class="text-white font-semibold text-sm">RDP</span>
+          <div class="protocol-tooltip">Remote Desktop Protocol — full Windows/Linux desktop sessions</div>
+        </div>
+
+        <div class="protocol-pill">
+          <span style="font-size:20px;">📡</span>
+          <span class="text-white font-semibold text-sm">VNC</span>
+          <div class="protocol-tooltip">Virtual Network Computing — cross-platform graphical remote access</div>
+        </div>
+
+        <div class="protocol-pill">
+          <span style="font-size:20px;">📁</span>
+          <span class="text-white font-semibold text-sm">SFTP</span>
+          <div class="protocol-tooltip">SSH File Transfer Protocol — encrypted file manager with host-key trust</div>
+        </div>
+
+        <div class="protocol-pill">
+          <span style="font-size:20px;">📂</span>
+          <span class="text-white font-semibold text-sm">FTP</span>
+          <div class="protocol-tooltip">File Transfer Protocol — legacy FTP with integrated credential profiles</div>
+        </div>
+
+        <div class="protocol-pill">
+          <span style="font-size:20px;">🧩</span>
+          <span class="text-white font-semibold text-sm">Proxmox</span>
+          <div class="protocol-tooltip">Proxmox VE API — manage VMs, containers, storage, nodes</div>
+        </div>
+
+        <div class="protocol-pill">
+          <span style="font-size:20px;">🐳</span>
+          <span class="text-white font-semibold text-sm">Docker</span>
+          <div class="protocol-tooltip">Docker Engine API — inspect containers, images, volumes, networks</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Extra feature chips -->
+    <div class="flex flex-wrap justify-center gap-3 mt-10 reveal">
+      <span class="text-xs text-muted px-3 py-1.5 rounded-full" style="background:rgba(255,255,255,0.04); border:1px solid var(--border);">ProxyJump chains</span>
+      <span class="text-xs text-muted px-3 py-1.5 rounded-full" style="background:rgba(255,255,255,0.04); border:1px solid var(--border);">Port-forwarding tunnels</span>
+      <span class="text-xs text-muted px-3 py-1.5 rounded-full" style="background:rgba(255,255,255,0.04); border:1px solid var(--border);">SSH agent forwarding</span>
+      <span class="text-xs text-muted px-3 py-1.5 rounded-full" style="background:rgba(255,255,255,0.04); border:1px solid var(--border);">Host-key verification</span>
+      <span class="text-xs text-muted px-3 py-1.5 rounded-full" style="background:rgba(255,255,255,0.04); border:1px solid var(--border);">Vault SSH keys</span>
+      <span class="text-xs text-muted px-3 py-1.5 rounded-full" style="background:rgba(255,255,255,0.04); border:1px solid var(--border);">Command library</span>
+      <span class="text-xs text-muted px-3 py-1.5 rounded-full" style="background:rgba(255,255,255,0.04); border:1px solid var(--border);">Local terminal</span>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     TERMINAL DEMO (Broadcast Mode)
+═══════════════════════════════════════════ -->
+<section class="py-24 px-4 sm:px-6 lg:px-8" style="background: linear-gradient(180deg, transparent, rgba(139,92,246,0.03), transparent);">
+  <div class="max-w-5xl mx-auto">
+
+    <div class="text-center mb-14 reveal">
+      <div class="section-tag">Broadcast Mode</div>
+      <h2 class="text-3xl sm:text-4xl font-bold text-white mt-2">One command.<br/>Every server. Simultaneously.</h2>
+      <p class="text-muted mt-4 max-w-xl mx-auto">Select your server group, type once, and watch NexoRC fan out execution across your entire fleet in parallel.</p>
+    </div>
+
+    <div class="terminal reveal">
+      <div class="terminal-bar">
+        <div class="dot dot-red"></div>
+        <div class="dot dot-yellow"></div>
+        <div class="dot dot-green"></div>
+        <span class="ml-4 text-xs text-muted font-mono">nexorc — broadcast — fleet:production — 3 servers</span>
+        <span class="ml-auto flex items-center gap-2">
+          <span class="inline-flex items-center gap-1.5">
+            <span class="status-dot" style="width:7px;height:7px;"></span>
+            <span class="text-xs text-muted">3 / 3 online</span>
+          </span>
+        </span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="term-out">[nexorc] Broadcast session started — targeting 3 servers</span></div>
+        <div><span class="term-out">[nexorc] Servers: prod-web-01, prod-web-02, prod-db-01</span></div>
+        <div class="mt-3">
+          <span class="term-prompt">NexoRC</span><span class="code-punc" style="color:#64748b">@</span><span class="term-path">broadcast</span><span class="code-punc" style="color:#64748b">:~$</span>
+          <span class="term-cmd" id="bc-typed"> </span><span class="cursor" id="bc-cursor"></span>
+        </div>
+        <div id="bc-output" class="mt-2 space-y-2"></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     DOWNLOAD CTA
+═══════════════════════════════════════════ -->
+<section id="download" class="py-24 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-4xl mx-auto">
+
+    <div class="cta-gradient rounded-3xl p-10 sm:p-16 text-center reveal" style="position:relative;">
+      <!-- Background glow -->
+      <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.2) 0%, transparent 65%);border-radius:1.5rem;pointer-events:none;"></div>
+
+      <div class="relative z-10">
+        <div class="section-tag" style="justify-content:center;">Free. Always.</div>
+        <h2 class="text-4xl sm:text-5xl font-black text-white mt-3 mb-4">Download NexoRC.<br/>Free, forever.</h2>
+        <p class="text-muted text-lg mb-10 max-w-md mx-auto">No subscription. No telemetry. No cloud. Just a fast, secure desktop app that respects your infrastructure.</p>
+
+        <div class="flex flex-wrap gap-4 justify-center mb-10">
+          <a href="#" class="btn-primary flex items-center gap-3 px-8 py-4 rounded-xl font-semibold text-sm">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor"><path d="M0 2.25A2.25 2.25 0 012.25 0h13.5A2.25 2.25 0 0118 2.25v13.5A2.25 2.25 0 0115.75 18H2.25A2.25 2.25 0 010 15.75V2.25zm2.25-.75A.75.75 0 001.5 2.25v13.5c0 .414.336.75.75.75h13.5a.75.75 0 00.75-.75V2.25a.75.75 0 00-.75-.75H2.25z"/><rect x="4" y="7" width="10" height="1.5" rx=".75"/><rect x="4" y="10" width="7" height="1.5" rx=".75"/></svg>
+            Download for Windows
+          </a>
+        </div>
+
+        <div class="flex flex-wrap gap-3 justify-center">
+          <div class="os-badge">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:#60a5fa"><path d="M0 2.25A2.25 2.25 0 012.25 0h11.5A2.25 2.25 0 0116 2.25v11.5A2.25 2.25 0 0113.75 16H2.25A2.25 2.25 0 010 13.75V2.25z"/></svg>
+            <span class="text-white font-medium">Windows</span>
+            <span class="text-muted text-xs">10 / 11</span>
+          </div>
+          <div class="os-badge">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#e2e8f0" stroke-width="1.5"><circle cx="8" cy="8" r="7"/><path d="M8 1a4 4 0 014 4 4 4 0 01-4 4 4 4 0 01-4-4 4 4 0 014-4z"/></svg>
+            <span class="text-white font-medium">macOS</span>
+            <span class="text-muted text-xs">13+</span>
+          </div>
+          <div class="os-badge">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="color:#f97316"><path d="M8 0L9.96 5.9H16l-4.9 3.56 1.87 5.74L8 11.72l-4.97 3.48 1.87-5.74L0 5.9h6.04z"/></svg>
+            <span class="text-white font-medium">Linux</span>
+            <span class="text-muted text-xs">.AppImage / .deb</span>
+          </div>
+        </div>
+
+        <p class="text-muted text-xs mt-8 flex items-center justify-center gap-2">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 1a3.5 3.5 0 013.5 3.5v1h.5A1 1 0 0111 6.5v4A1 1 0 0110 11.5H2a1 1 0 01-1-1v-4a1 1 0 011-1h.5v-1A3.5 3.5 0 016 1z"/></svg>
+          Open source · MIT License · Auditable codebase
+        </p>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     FOOTER
+═══════════════════════════════════════════ -->
+<footer class="py-12 px-4 sm:px-6 lg:px-8" style="border-top: 1px solid var(--border);">
+  <div class="max-w-6xl mx-auto">
+    <div class="flex flex-col sm:flex-row items-center sm:items-start justify-between gap-8">
+
+      <!-- Logo + tagline -->
+      <div class="text-center sm:text-left">
+        <div class="flex items-center justify-center sm:justify-start gap-1 text-white font-bold text-base tracking-widest uppercase mb-2">
+          NEXORC<span class="inline-block w-1.5 h-1.5 rounded-full bg-accent mb-1.5 ml-0.5"></span>
+        </div>
+        <p class="text-muted text-sm max-w-xs">One encrypted vault for every connection.<br/>Built for engineers who don't compromise.</p>
+      </div>
+
+      <!-- Links -->
+      <div class="flex flex-col sm:flex-row gap-8 text-center sm:text-left">
+        <div>
+          <h4 class="text-white text-xs font-semibold uppercase tracking-widest mb-3">Project</h4>
+          <div class="flex flex-col gap-2">
+            <a href="https://github.com" target="_blank" rel="noopener" class="nav-link text-sm">GitHub</a>
+            <a href="#" class="nav-link text-sm">Docs</a>
+            <a href="#" class="nav-link text-sm">Changelog</a>
+          </div>
+        </div>
+        <div>
+          <h4 class="text-white text-xs font-semibold uppercase tracking-widest mb-3">Product</h4>
+          <div class="flex flex-col gap-2">
+            <a href="#features" class="nav-link text-sm">Features</a>
+            <a href="#security" class="nav-link text-sm">Security</a>
+            <a href="#download" class="nav-link text-sm">Download</a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3" style="border-top: 1px solid var(--border);">
+      <p class="text-muted text-xs">© 2025 NexoRC. Open Source. MIT License.</p>
+      <div class="flex items-center gap-2 text-muted text-xs">
+        <span class="status-dot" style="width:6px;height:6px;"></span>
+        <span>No telemetry · No cloud · No subscription</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- ═══════════════════════════════════════════
+     JAVASCRIPT
+═══════════════════════════════════════════ -->
+<script>
+(function () {
+  'use strict';
+
+  // ── Navbar scroll effect ──────────────────────────────────────
+  const navbar = document.getElementById('navbar');
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 20) {
+      navbar.classList.add('scrolled');
+    } else {
+      navbar.classList.remove('scrolled');
+    }
+  }, { passive: true });
+
+  // ── Mobile hamburger ─────────────────────────────────────────
+  const hamburger = document.getElementById('hamburger');
+  const mobileMenu = document.getElementById('mobile-menu');
+  hamburger.addEventListener('click', () => {
+    mobileMenu.classList.toggle('open');
+  });
+  // Close mobile menu on link click
+  mobileMenu.querySelectorAll('a').forEach(link => {
+    link.addEventListener('click', () => mobileMenu.classList.remove('open'));
+  });
+
+  // ── IntersectionObserver scroll reveal ───────────────────────
+  const revealEls = document.querySelectorAll('.reveal');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+  revealEls.forEach(el => observer.observe(el));
+
+  // ── Typing animation helper ──────────────────────────────────
+  function typeText(targetEl, cursorEl, text, speed, cb) {
+    let i = 0;
+    targetEl.textContent = '';
+    if (cursorEl) cursorEl.style.display = 'inline-block';
+    const iv = setInterval(() => {
+      if (i < text.length) {
+        targetEl.textContent += text[i++];
+      } else {
+        clearInterval(iv);
+        if (cursorEl) cursorEl.style.display = 'none';
+        if (cb) cb();
+      }
+    }, speed);
+  }
+
+  function appendLine(parentEl, html, delayMs) {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        div.classList.add('server-response');
+        parentEl.appendChild(div);
+        resolve();
+      }, delayMs);
+    });
+  }
+
+  // ── Hero terminal animation ──────────────────────────────────
+  let heroStarted = false;
+  const heroTyped = document.getElementById('hero-typed');
+  const heroCursor = document.getElementById('hero-cursor');
+  const heroOutput = document.getElementById('hero-output');
+
+  const heroTermObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && !heroStarted) {
+      heroStarted = true;
+      heroTermObserver.disconnect();
+      setTimeout(() => {
+        typeText(heroTyped, heroCursor, 'systemctl status nginx', 55, async () => {
+          heroCursor.style.display = 'none';
+          await appendLine(heroOutput, '<span class="term-ok">● nginx.service - A high performance web server</span>', 300);
+          await appendLine(heroOutput, '<span class="term-out">   Loaded: loaded (/lib/systemd/system/nginx.service; enabled)</span>', 100);
+          await appendLine(heroOutput, '<span class="term-ok">   Active: active (running) since Fri 2025-05-16 08:31:04 UTC; 6d ago</span>', 100);
+          await appendLine(heroOutput, '<span class="term-out"> Main PID: 1283 (nginx)</span>', 80);
+          await appendLine(heroOutput, '<span class="term-out">   Tasks: 5 (limit: 4096)</span>', 80);
+          await appendLine(heroOutput, '<span class="term-info">   Memory: 12.4M</span>', 80);
+          // show cursor again for new prompt
+          const newPrompt = document.createElement('div');
+          newPrompt.className = 'mt-2';
+          newPrompt.innerHTML = '<span class="term-prompt">user</span><span class="code-punc" style="color:#64748b">@</span><span class="term-path">prod-web-01</span><span class="code-punc" style="color:#64748b">:~$</span> <span class="cursor"></span>';
+          heroOutput.appendChild(newPrompt);
+        });
+      }, 800);
+    }
+  }, { threshold: 0.3 });
+  const heroTermEl = document.querySelector('#hero-terminal');
+  if (heroTermEl) heroTermObserver.observe(heroTermEl);
+
+  // ── Broadcast terminal animation ─────────────────────────────
+  let bcStarted = false;
+  const bcTyped = document.getElementById('bc-typed');
+  const bcCursor = document.getElementById('bc-cursor');
+  const bcOutput = document.getElementById('bc-output');
+
+  const bcCmd = 'sudo apt update && sudo apt upgrade -y';
+  const servers = ['prod-web-01', 'prod-web-02', 'prod-db-01'];
+
+  const serverOutputs = [
+    [
+      '<span class="term-out">Hit:1 http://archive.ubuntu.com/ubuntu jammy InRelease</span>',
+      '<span class="term-out">Hit:2 http://security.ubuntu.com/ubuntu jammy-security InRelease</span>',
+      '<span class="term-ok">12 packages can be upgraded.</span>',
+      '<span class="term-ok">✔ upgrade complete — 0 errors</span>',
+    ],
+    [
+      '<span class="term-out">Hit:1 http://archive.ubuntu.com/ubuntu jammy InRelease</span>',
+      '<span class="term-out">Reading package lists... Done</span>',
+      '<span class="term-ok">12 packages can be upgraded.</span>',
+      '<span class="term-ok">✔ upgrade complete — 0 errors</span>',
+    ],
+    [
+      '<span class="term-out">Hit:1 http://archive.ubuntu.com/ubuntu jammy InRelease</span>',
+      '<span class="term-info">Get:2 http://archive.ubuntu.com/ubuntu jammy-updates InRelease [119 kB]</span>',
+      '<span class="term-ok">12 packages can be upgraded.</span>',
+      '<span class="term-ok">✔ upgrade complete — 0 errors</span>',
+    ],
+  ];
+
+  async function runBroadcast() {
+    await new Promise(r => setTimeout(r, 500));
+    typeText(bcTyped, bcCursor, bcCmd, 45, async () => {
+      bcCursor.style.display = 'none';
+
+      for (let s = 0; s < servers.length; s++) {
+        const serverBlock = document.createElement('div');
+        serverBlock.style.borderLeft = '2px solid rgba(99,102,241,0.4)';
+        serverBlock.style.paddingLeft = '14px';
+        serverBlock.style.marginTop = '8px';
+        serverBlock.innerHTML = `<div class="server-response" style="animation-delay:${s * 0.1}s"><span style="color:#8b5cf6;font-weight:600;">[${servers[s]}]</span></div>`;
+        bcOutput.appendChild(serverBlock);
+        await new Promise(r => setTimeout(r, 200));
+
+        for (let o = 0; o < serverOutputs[s].length; o++) {
+          await new Promise(r => setTimeout(r, 180 + o * 60));
+          const lineEl = document.createElement('div');
+          lineEl.className = 'server-response';
+          lineEl.innerHTML = serverOutputs[s][o];
+          serverBlock.appendChild(lineEl);
+        }
+        await new Promise(r => setTimeout(r, 120));
+      }
+
+      // Summary
+      await new Promise(r => setTimeout(r, 400));
+      const summary = document.createElement('div');
+      summary.className = 'server-response mt-3 pt-3';
+      summary.style.borderTop = '1px solid rgba(255,255,255,0.06)';
+      summary.innerHTML = `<span class="term-ok">✔ Broadcast complete — 3/3 servers upgraded — 0 failures</span>`;
+      bcOutput.appendChild(summary);
+
+      const newPrompt = document.createElement('div');
+      newPrompt.className = 'mt-2';
+      newPrompt.innerHTML = '<span class="term-prompt">NexoRC</span><span class="code-punc" style="color:#64748b">@</span><span class="term-path">broadcast</span><span class="code-punc" style="color:#64748b">:~$</span> <span class="cursor"></span>';
+      bcOutput.appendChild(newPrompt);
+    });
+  }
+
+  const bcObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && !bcStarted) {
+      bcStarted = true;
+      bcObserver.disconnect();
+      runBroadcast();
+    }
+  }, { threshold: 0.3 });
+  const bcSection = bcTyped ? bcTyped.closest('.terminal') : null;
+  if (bcSection) bcObserver.observe(bcSection);
+
+})();
+</script>
+</body>
+</html>

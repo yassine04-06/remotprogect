@@ -1,0 +1,95 @@
+[package]
+name = "remote-manager"
+version = "1.0.0"
+description = "NexoRC — Remote Connection Manager"
+authors = ["you"]
+edition = "2021"
+default-run = "remote-manager"
+
+[lib]
+name = "remote_manager_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-opener = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+r2d2 = "0.8"
+r2d2_sqlite = { version = "0.24" }
+aes-gcm = "0.10"
+pbkdf2 = { version = "0.12", features = ["simple"] }
+sha2 = "0.10"
+sha1 = "0.10"                        # PBKDF2-HMAC-SHA1 for mRemoteNG AES-GCM key derivation
+quick-xml = "0.36"                   # mRemoteNG confCons.xml parsing
+hmac = "0.12"
+rand = "0.8"
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
+dirs = "5"
+zeroize = { version = "1", features = ["derive"] }
+secrecy = "0.8"
+dashmap = "6"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1"
+portable-pty = "0.8"
+suppaftp = { version = "8.0.2", features = ["native-tls"] }
+des = "0.8"
+native-tls = "0.2"
+tokio-native-tls = "0.3"
+ssh2 = "0.9.5"
+tauri-plugin-dialog = "2.6.0"
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
+sentry = { version = "0.34", default-features = false, features = ["backtrace", "contexts", "panic"] }
+regex = { version = "1", default-features = false, features = ["std", "unicode-perl"] }
+
+reqwest = { version = "0.11", features = ["json", "native-tls"], default-features = false }
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
+tracing = "0.1"
+rfd = "0.14"
+ts-rs = { version = "12", features = ["serde-compat"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }   # RoyalTS .rtsz decompression
+
+# HIGH-A1: native Rust SSH — no system ssh.exe dependency
+russh = "0.44"
+russh-keys = "0.44"
+async-trait = "0.1"
+bytes = "1"           # explicit dep — russh uses it transitively; we call Bytes::from / copy_from_slice directly
+
+# HIGH-A5: per-command rate limiting (100 req/s)
+governor = { version = "0.6", features = ["std", "dashmap"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"                      # PuTTY session registry reading
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
+] }
+
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
+tempfile = "3"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+# Optimize release builds for size and speed
+[profile.release]
+# M-7: switch from "abort" to "unwind" so a panic inside a session reader thread
+# can be caught (via std::panic::catch_unwind) and surfaced as a disconnect
+# event, instead of taking the whole process down with all other sessions.
+panic = "unwind"
+codegen-units = 1 # Compile crates one after another so the compiler can optimize better
+lto = true # Enables link to optimizations
+opt-level = "s" # Optimize for binary size
+strip = true # Remove debug symbols

@@ -1,0 +1,33 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.exe
+
+# Tauri updater signing keys — NEVER commit the private key
+*.key
+nexorc-updater.key*
+
+# Exception: RdpEmbed.exe is a pre-compiled WPF helper bundled with the app
+# It must stay in the repo even though *.exe is ignored above
+!src-tauri/helpers/RdpEmbed.exe
