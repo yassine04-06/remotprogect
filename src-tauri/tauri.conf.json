@@ -55,7 +55,7 @@
       "open": true
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZCNDFDODBDNUVCMUYxOTEKUldTUjhiRmVETWhCKzNsNkNZelViS2tsMFg3TVZ3L0pxM2FRdHAyV1JBeERSbzl0bkptTTFnT2kK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI3NDQ5RUMyRDZDNTU3QzkKUldUSlY4WFd3cDVFdDBYOWd5L0x5ZmlNMUlQY2Z5K3NmZW1vNERoUUVDVVhGSTNIV3JtckhWL2gK",
       "endpoints": [
         "https://github.com/yassine04-06/remotprogect/releases/latest/download/latest.json"
       ],
