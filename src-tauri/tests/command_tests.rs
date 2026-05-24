@@ -133,12 +133,12 @@ fn audit_log_insert_and_list() {
         "",
     )
     .expect("audit insert");
-    let entries = database::audit_log_list(&db, 50).expect("audit list");
+    let entries = database::audit_log_list(&db, 50, 0).expect("audit list");
     assert_eq!(entries.len(), 1);
     let e = &entries[0];
     assert_eq!(e.action, "connect");
-    assert_eq!(e.resource_type, "connection");
-    assert_eq!(e.status, "success");
+    assert_eq!(e.entity_type, "connection");
+    assert_eq!(e.outcome, "success");
     assert!(!e.chain_hash.is_empty(), "chain_hash must be populated");
 }
 
@@ -159,8 +159,11 @@ fn audit_log_chain_verify_clean() {
         .expect("insert");
     }
     let result = database::audit_log_verify(&db).expect("verify");
-    assert!(result.valid, "chain must be valid after clean inserts");
-    assert!(result.tampered.is_empty(), "no tampered entries expected");
+    assert!(
+        result.chain_intact,
+        "chain must be valid after clean inserts"
+    );
+    assert!(result.tampered_count == 0, "no tampered entries expected");
 }
 
 #[test]
@@ -179,7 +182,7 @@ fn audit_log_chain_detects_tampering() {
 
     let result = database::audit_log_verify(&db).expect("verify");
     assert!(
-        !result.valid || !result.tampered.is_empty(),
+        !result.chain_intact || result.tampered_count > 0,
         "tampered row must be detected"
     );
 }

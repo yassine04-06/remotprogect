@@ -21,7 +21,11 @@ pub fn check_vnc_availability() -> VncAvailability {
     ];
 
     for path in paths_to_check {
-        if let Ok(_) = Command::new("cmd").args(&["/c", "where", path]).output() {
+        if Command::new("cmd")
+            .args(["/c", "where", path])
+            .output()
+            .is_ok()
+        {
             return VncAvailability {
                 available: true,
                 binary_path: Some(path.to_string()),

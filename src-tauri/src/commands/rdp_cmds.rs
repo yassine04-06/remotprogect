@@ -12,6 +12,7 @@ pub fn rdp_check_available() -> rdp::RdpAvailability {
 /// CRIT-A4: `connection_id` replaces explicit `host`, `port`, `username`, `password`, `domain`.
 /// Credentials are resolved server-side so plaintext passwords never cross the IPC boundary.
 #[cfg(target_os = "windows")]
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn rdp_connect(
     app: tauri::AppHandle,
@@ -42,7 +43,7 @@ pub fn rdp_connect(
     let port = connection.port;
     let nla = connection.rdp_nla;
 
-    let key_guard = state.encryption_key.read().map_err(|e| lock_err(e))?;
+    let key_guard = state.encryption_key.read().map_err(lock_err)?;
     let master_key = key_guard.as_ref().ok_or("Vault locked")?;
     let creds = resolve_credentials_internal(&conn, master_key, &connection_id)?;
     drop(key_guard);
@@ -82,7 +83,7 @@ pub fn rdp_connect(
                 std::thread::spawn(move || {
                     use std::io::BufRead;
                     let reader = std::io::BufReader::new(stderr);
-                    for line in reader.lines().flatten() {
+                    for line in reader.lines().map_while(Result::ok) {
                         let _ = tauri::Emitter::emit(&app2, &format!("rdp-stderr-{}", sid2), &line);
                     }
                 });
@@ -196,6 +197,7 @@ pub fn rdp_embed_window(
     Ok(state.rdp_sessions.contains_key(&session_id))
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn rdp_resize_embedded(
     app: tauri::AppHandle,

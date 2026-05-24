@@ -156,7 +156,7 @@ pub fn ensure_helper_compiled(data_dir: &str) -> Result<String, String> {
     }
 
     // Fall back: compile from source at runtime (requires csc.exe and .cs on machine)
-    let possible_cs = vec![
+    let possible_cs = [
         exe_dir.join("helpers").join("RdpEmbed.cs"),
         exe_dir.join("RdpEmbed.cs"),
         std::path::PathBuf::from(data_dir).join("RdpEmbed.cs"),
@@ -212,6 +212,7 @@ pub fn ensure_helper_compiled(data_dir: &str) -> Result<String, String> {
 // ── Embedded RDP Launch ─────────────────────────────────
 
 #[cfg(target_os = "windows")]
+#[allow(clippy::too_many_arguments)]
 pub fn launch_rdp_embedded(
     data_dir: &str,
     host: &str,
@@ -264,8 +265,8 @@ pub fn launch_rdp_embedded(
         match line_result {
             Ok(l) => {
                 let l = l.trim().to_string();
-                if l.starts_with("HWND:") {
-                    if let Ok(hwnd) = l[5..].parse::<i64>() {
+                if let Some(hwnd_str) = l.strip_prefix("HWND:") {
+                    if let Ok(hwnd) = hwnd_str.parse::<i64>() {
                         form_hwnd = hwnd;
                         got_hwnd = true;
                         break;
@@ -384,7 +385,7 @@ pub fn spawn_event_reader(
 
 // ── Legacy mstsc fallback ───────────────────────────────
 
-#[allow(dead_code)]
+#[allow(dead_code, clippy::too_many_arguments)]
 pub fn launch_rdp_mstsc(
     host: &str,
     port: i32,

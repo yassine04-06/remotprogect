@@ -108,6 +108,9 @@ fn test_update_connection() {
         docker_socket_path: None,
         proxmox_api_token_id: None,
         proxmox_api_token_secret_encrypted: None,
+        docker_tls_ca_path: None,
+        docker_tls_cert_path: None,
+        docker_tls_key_path: None,
     };
 
     database::update_connection(&conn, update).expect("update failed");
@@ -232,6 +235,9 @@ fn test_update_connection_preserves_encrypted_fields() {
         docker_socket_path: None,
         proxmox_api_token_id: None,
         proxmox_api_token_secret_encrypted: None,
+        docker_tls_ca_path: None,
+        docker_tls_cert_path: None,
+        docker_tls_key_path: None,
     };
 
     database::update_connection(&conn, update).expect("update failed");

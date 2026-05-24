@@ -68,6 +68,7 @@ fn http_client() -> &'static Client {
 // not the IP/host the user types — the chain-against-supplied-CA is the
 // security guarantee.
 
+#[allow(clippy::type_complexity)]
 fn read_docker_tls_files(
     ca_path: Option<&str>,
     cert_path: Option<&str>,
@@ -352,6 +353,7 @@ pub async fn docker_get_containers(
         .map_err(|e| AppError::Internal(format!("Parse error: {}", e)))
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn docker_container_action(
     host: String,
@@ -423,6 +425,7 @@ pub async fn docker_container_action(
     Ok("Action initiated successfully".to_string())
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn docker_get_logs(
     host: String,
@@ -500,6 +503,7 @@ pub async fn docker_get_logs(
 
 /// Create an exec instance and attach via raw TCP (Docker hijack protocol).
 /// Returns the exec_id so the frontend can issue resize requests.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn docker_exec_start(
     app: tauri::AppHandle,
@@ -738,6 +742,7 @@ pub async fn docker_exec_input(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn docker_exec_resize(
     host: String,

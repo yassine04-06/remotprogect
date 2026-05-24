@@ -182,6 +182,7 @@ pub struct JumpHostParams {
 
 // ── Main connect entry-point ──────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub async fn ssh_connect(
     app: &AppHandle,
     session_id: &str,
@@ -264,9 +265,8 @@ pub async fn ssh_connect(
             loop {
                 tokio::select! {
                     msg = jump_ch.wait() => match msg {
-                        Some(ChannelMsg::Data { ref data }) => {
-                            if bw.write_all(data).await.is_err() { break; }
-                        }
+                        Some(ChannelMsg::Data { ref data })
+                            if bw.write_all(data).await.is_err() => { break; }
                         None | Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) => break,
                         _ => {}
                     },
@@ -374,7 +374,7 @@ pub async fn ssh_connect(
                                         Ok(n) => { if ch.data(&buf[..n]).await.is_err() { break; } }
                                     },
                                     msg = ch.wait() => match msg {
-                                        Some(ChannelMsg::Data { ref data }) => { if sw.write_all(data).await.is_err() { break; } }
+                                        Some(ChannelMsg::Data { ref data }) if sw.write_all(data).await.is_err() => { break; }
                                         None | Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) => break,
                                         _ => {}
                                     },

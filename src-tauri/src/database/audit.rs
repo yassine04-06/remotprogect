@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 /// Compute the chain hash for a single audit entry.
 /// Input material: prev_hash ‖ "|" ‖ id ‖ "|" ‖ ts ‖ "|" ‖ action ‖ …
+#[allow(clippy::too_many_arguments)]
 fn audit_chain_hash(
     prev_hash: &str,
     id: &str,

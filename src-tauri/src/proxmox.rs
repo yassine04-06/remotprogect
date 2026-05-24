@@ -264,7 +264,7 @@ pub async fn proxmox_auth(
 
     // Copy key out of the RwLockReadGuard so no non-Send guard crosses the await.
     let master_key: [u8; 32] = {
-        let key_guard = state.encryption_key.read().map_err(|e| lock_err(e))?;
+        let key_guard = state.encryption_key.read().map_err(lock_err)?;
         *key_guard
             .as_ref()
             .ok_or_else(|| AppError::AuthFailed("Vault locked".to_string()))?
@@ -344,6 +344,7 @@ pub async fn proxmox_get_resources(
     Ok(res_data.data)
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn proxmox_vm_action(
     state: tauri::State<'_, AppState>,
@@ -425,7 +426,7 @@ pub async fn proxmox_auth_token(
 
     // Copy key out of the RwLockReadGuard so no non-Send guard crosses the await.
     let master_key: [u8; 32] = {
-        let key_guard = state.encryption_key.read().map_err(|e| lock_err(e))?;
+        let key_guard = state.encryption_key.read().map_err(lock_err)?;
         *key_guard
             .as_ref()
             .ok_or_else(|| AppError::AuthFailed("Vault locked".to_string()))?

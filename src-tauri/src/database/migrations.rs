@@ -35,15 +35,12 @@ pub fn initialize_database(
             .unwrap_or(0); // table missing on first run → version 0
 
         if stored_version > CURRENT_SCHEMA_VERSION {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!(
-                    "Database schema version {} is newer than this version of NexoRC \
+            return Err(Box::new(std::io::Error::other(format!(
+                "Database schema version {} is newer than this version of NexoRC \
                      (max supported: {}). Please upgrade the application or restore a \
                      backup created with this version.",
-                    stored_version, CURRENT_SCHEMA_VERSION
-                ),
-            )));
+                stored_version, CURRENT_SCHEMA_VERSION
+            ))));
         }
 
         run_migrations(&conn)?;
@@ -79,7 +76,7 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
             "INSERT OR REPLACE INTO schema_version (version) VALUES (?1)",
             params![pragma_version],
         )?;
-        conn.execute_batch(&format!("PRAGMA user_version = 0;"))?;
+        conn.execute_batch("PRAGMA user_version = 0;")?;
         tracing::info!(
             "Migrated version tracking from PRAGMA user_version={} to schema_version table",
             pragma_version
