@@ -8,7 +8,7 @@
     --color-accent: #89b4fa;
     --color-accent-secondary: #b4befe;
     --color-text-primary: #cdd6f4;
-    --color-text-muted: #6c7086;
+    --color-text-muted: #8087a0;
 
     --color-glass-bg: rgba(24, 24, 37, 0.8);
     --color-glass-border: rgba(255, 255, 255, 0.05);
@@ -67,7 +67,7 @@
     --color-accent: #007aff;
     --color-accent-secondary: #5856d6;
     --color-text-primary: #1c1c1e;
-    --color-text-muted: #8e8e93;
+    --color-text-muted: #6b6b70;
     --color-glass-bg: rgba(255, 255, 255, 0.75);
     --color-glass-border: rgba(0, 0, 0, 0.05);
     --color-hover: rgba(0, 0, 0, 0.05);
@@ -94,13 +94,45 @@
         background-color: var(--color-base);
         overflow: hidden;
     }
+
+    /* A11y 2.4.7: visible keyboard focus on all interactive elements.
+       :focus-visible only shows for keyboard nav, never on mouse click —
+       so it adds accessibility without visual noise for mouse users. */
+    :focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 2px;
+        border-radius: 4px;
+    }
+    :focus:not(:focus-visible) {
+        outline: none;
+    }
+
+    /* Subtle branded text selection */
+    ::selection {
+        background-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+        color: var(--color-text-primary);
+    }
+
+    /* Respect users who prefer reduced motion (a11y 2.3.3 / vestibular safety) */
+    @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+        }
+    }
 }
 
 @utility glass-card {
     background-color: var(--color-glass-bg);
-    backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px) saturate(1.4);
     border: 1px solid var(--color-glass-border);
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    /* layered shadow + 1px inner top highlight = subtle premium depth */
+    box-shadow:
+        0 1px 0 0 rgba(255, 255, 255, 0.04) inset,
+        0 25px 50px -12px rgba(0, 0, 0, 0.45);
 }
 
 @utility btn-icon {
@@ -118,6 +150,9 @@
     &:hover {
         background-color: var(--color-hover);
         color: var(--color-text-primary);
+    }
+    &:active {
+        transform: scale(0.92);
     }
 }
 
