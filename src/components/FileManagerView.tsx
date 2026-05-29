@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import { useTabStore, useUIStore } from '../store';
 import * as api from '../services/api';
 import type { Tab, FileNode } from '../types';
@@ -334,7 +335,8 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
         if (!selectedFile) return;
         setMenuPosition(null);
 
-        if (!confirm(`Are you sure you want to delete ${selectedFile.name}?`)) return;
+        const ok = await confirm(`Delete "${selectedFile.name}"?`, { title: 'Confirm Delete', kind: 'warning' });
+        if (!ok) return;
 
         try {
             setLoading(true);

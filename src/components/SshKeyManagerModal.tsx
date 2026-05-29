@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Key, Plus, Trash2, Copy, Download, Loader2, ChevronDown } from 'lucide-react';
 import * as api from '../services/api';
@@ -50,7 +51,8 @@ export function SshKeyManagerModal({ onClose }: Props) {
     }, [onClose]);
 
     const handleDelete = async (id: string, name: string) => {
-        if (!confirm(`Delete key "${name}"? Connections using it will need to be reconfigured.`)) return;
+        const ok = await confirm(`Delete key "${name}"? Connections using it will need to be reconfigured.`, { title: 'Confirm Delete', kind: 'warning' });
+        if (!ok) return;
         try {
             await api.sshKeyDelete(id);
             setKeys(k => k.filter(x => x.id !== id));

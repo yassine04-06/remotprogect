@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { useUIStore, useConnectionStore } from '../store';
 import * as api from '../services/api';
-import { save as saveDialog, open as openDialog } from '@tauri-apps/plugin-dialog';
+import { save as saveDialog, open as openDialog, confirm } from '@tauri-apps/plugin-dialog';
 import { parseBackendError, getUserFriendlyErrorMessage } from '../utils/errorMapper';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ProxmoxCertsModal } from './ProxmoxCertsModal';
@@ -166,9 +166,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         });
         if (!path) return;
 
-        if (!confirm('OVERWRITE WARNING: This will replace your entire current vault. Continue?')) {
-            return;
-        }
+        const ok = await confirm('This will OVERWRITE your entire current vault. This cannot be undone.', { title: 'Overwrite Vault?', kind: 'warning' });
+        if (!ok) return;
 
         try {
             await api.vaultImportFile(path as string);

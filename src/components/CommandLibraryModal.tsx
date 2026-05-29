@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, TerminalSquare, Search, Edit2, Trash2 } from 'lucide-react';
 import { useUIStore, useCredentialStore } from '../store';
@@ -91,9 +92,8 @@ export const CommandLibraryModal: React.FC = () => {
 
     const handleDelete = async (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
-        if (confirm('Are you sure you want to delete this command?')) {
-            await deleteSavedCommand(id);
-        }
+        const ok = await confirm('Delete this command?', { title: 'Confirm Delete', kind: 'warning' });
+        if (ok) await deleteSavedCommand(id);
     };
 
     return (

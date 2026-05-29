@@ -3,6 +3,7 @@
 // and selectively remove entries to force re-TOFU on the next connection.
 
 import { useEffect, useState } from 'react';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import { X, ShieldCheck, ShieldOff, Trash2, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as api from '../services/api';
@@ -53,9 +54,8 @@ export function ProxmoxCertsModal({ isOpen, onClose }: ProxmoxCertsModalProps) {
     }, [isOpen]);
 
     const handleForget = async (hostKey: string) => {
-        if (!confirm(`Remove pinned certificate for "${hostKey}"?\n\nThe next connection to this host will re-verify its certificate.`)) {
-            return;
-        }
+        const ok = await confirm(`Remove pinned certificate for "${hostKey}"?\n\nThe next connection to this host will re-verify its certificate.`, { title: 'Remove Certificate', kind: 'warning' });
+        if (!ok) return;
         setForgetting(hostKey);
         try {
             await api.proxmoxForgetCert(hostKey);

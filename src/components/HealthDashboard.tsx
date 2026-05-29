@@ -13,7 +13,6 @@ import {
     AlertCircle,
     CheckCircle2,
 } from 'lucide-react';
-import type { ServerConnection } from '../types';
 
 interface PingHistory {
     [connectionId: string]: {
@@ -25,23 +24,9 @@ interface PingHistory {
 
 export const HealthDashboard: React.FC = () => {
     const connections = useConnectionStore(s => s.connections);
-    const addTab = useTabStore(s => s.addTab);
-    const setActiveTabId = useTabStore(s => s.setActiveTabId);
+    const openTab = useTabStore(s => s.openTab);
     const [healthData, setHealthData] = useState<PingHistory>({});
     const [isPinging, setIsPinging] = useState(false);
-
-    const openTab = (conn: ServerConnection) => {
-        const id = `${conn.id}-${Date.now()}`;
-        addTab({
-            id,
-            connectionId: conn.id,
-            connectionName: conn.name,
-            protocol: conn.protocol,
-            status: 'connecting',
-            connection: conn,
-        });
-        setActiveTabId(id);
-    };
 
     // Initial ping & Interval setup
     useEffect(() => {

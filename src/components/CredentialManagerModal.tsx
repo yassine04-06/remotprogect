@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, KeyRound, Search, Edit2, Trash2 } from 'lucide-react';
 import { useUIStore, useCredentialStore, useConnectionStore } from '../store';
@@ -137,9 +138,8 @@ export const CredentialManagerModal: React.FC = () => {
             usedCount > 0
                 ? `Are you sure you want to delete this profile?\n\nIt is used by ${usedCount} server(s). They will fall back to local credentials.`
                 : 'Are you sure you want to delete this profile?';
-        if (confirm(msg)) {
-            await deleteCredentialProfile(id);
-        }
+        const ok = await confirm(msg, { title: 'Confirm Delete', kind: 'warning' });
+        if (ok) await deleteCredentialProfile(id);
     };
 
     const handleDuplicate = async (e: React.MouseEvent, p: CredentialProfile) => {

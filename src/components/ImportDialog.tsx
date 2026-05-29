@@ -134,7 +134,8 @@ function ConnectionRow({
 export function ImportDialog() {
     const showImportDialog = useUIStore(s => s.showImportDialog);
     const setShowImportDialog = useUIStore(s => s.setShowImportDialog);
-    const fetchConnections = useConnectionStore(s => s.fetchConnections);
+    const storeSetConnections = useConnectionStore(s => s.setConnections);
+    const storeSetGroups = useConnectionStore(s => s.setGroups);
     const addToast = useUIStore(s => s.addToast);
 
     const [tab, setTab] = useState<TabId>('putty');
@@ -343,7 +344,11 @@ export function ImportDialog() {
         setError(null);
         try {
             const count = await bulkImportConnections(toImport);
-            await fetchConnections();
+            // Force refresh — fetchConnections() is a no-op when loaded=true
+            const apiModule = await import('../services/api');
+            const [conns, grps] = await Promise.all([apiModule.getConnections(), apiModule.getGroups()]);
+            storeSetConnections(conns);
+            storeSetGroups(grps);
             addToast({
                 type: 'success',
                 title: 'Import complete',

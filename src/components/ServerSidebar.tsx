@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import type { CredentialProfile } from '../types';
 import * as api from '../services/api';
+import { confirm } from '@tauri-apps/plugin-dialog';
 
 // react-window 2.x `List` uses different prop names than 1.x;
 // cast to a compatible type so JSX doesn't need inline generic parameters.
@@ -67,6 +68,7 @@ export const ServerSidebar: React.FC = () => {
     const setShowGroupDialog = useUIStore(s => s.setShowGroupDialog);
     const setShowPortScanner = useUIStore(s => s.setShowPortScanner);
     const setShowCommandLibraryDialog = useUIStore(s => s.setShowCommandLibraryDialog);
+    const setShowImportDialog = useUIStore(s => s.setShowImportDialog);
     const addToast = useUIStore(s => s.addToast);
 
     const credentialProfiles = useCredentialStore(s => s.credentialProfiles);
@@ -134,7 +136,8 @@ export const ServerSidebar: React.FC = () => {
     const handleDelete = useCallback(
         async (connection: ServerConnection) => {
             setContextMenu(null);
-            if (!confirm(`Are you sure you want to delete "${connection.name}"?`)) return;
+            const ok = await confirm(`Delete "${connection.name}"?`, { title: 'Confirm Delete', kind: 'warning' });
+            if (!ok) return;
             try {
                 await deleteConnection(connection.id);
             } catch (err) {
@@ -145,8 +148,10 @@ export const ServerSidebar: React.FC = () => {
     );
 
     const refreshConnections = useCallback(async () => {
-        const store = useConnectionStore.getState();
-        store.setConnections(await api.getConnections());
+        const { setConnections, setGroups } = useConnectionStore.getState();
+        const [conns, grps] = await Promise.all([api.getConnections(), api.getGroups()]);
+        setConnections(conns);
+        setGroups(grps);
     }, []);
 
     // 90-7: toggle favorite
@@ -329,12 +334,11 @@ export const ServerSidebar: React.FC = () => {
                                             type="button"
                                             onClick={async e => {
                                                 e.stopPropagation();
-                                                if (
-                                                    !confirm(
-                                                        `Delete folder "${group.name}"? Connections inside will become ungrouped.`
-                                                    )
-                                                )
-                                                    return;
+                                                const ok = await confirm(
+                                                    `Delete folder "${group.name}"? Connections inside will become ungrouped.`,
+                                                    { title: 'Confirm Delete', kind: 'warning' }
+                                                );
+                                                if (!ok) return;
                                                 await deleteGroup(group.id);
                                             }}
                                             className="p-1 hover:bg-red-500/10 rounded-md text-text-muted hover:text-red-400 transition-colors"
@@ -414,6 +418,15 @@ export const ServerSidebar: React.FC = () => {
                     <span className="text-sm font-bold tracking-tight">NexoRC Vault</span>
                 </div>
                 <div className="flex items-center gap-0.5">
+                    <button
+                        type="button"
+                        className="p-1.5 hover:bg-accent/5 rounded-md text-text-muted hover:text-accent transition-colors"
+                        onClick={() => setShowImportDialog(true)}
+                        title="Import Connections"
+                        aria-label="Import Connections"
+                    >
+                        <FolderSync className="w-3.5 h-3.5" />
+                    </button>
                     <button
                         type="button"
                         className="p-1.5 hover:bg-accent/5 rounded-md text-text-muted hover:text-accent transition-colors"
@@ -630,12 +643,11 @@ export const ServerSidebar: React.FC = () => {
                             className="w-full flex items-center gap-3 px-3 py-2 text-sm text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-colors"
                             onClick={async () => {
                                 setGroupContextMenu(null);
-                                if (
-                                    !confirm(
-                                        `Delete folder "${groupContextMenu.group.name}"? Connections inside will become ungrouped.`
-                                    )
-                                )
-                                    return;
+                                const ok = await confirm(
+                                    `Delete folder "${groupContextMenu.group.name}"? Connections inside will become ungrouped.`,
+                                    { title: 'Confirm Delete', kind: 'warning' }
+                                );
+                                if (!ok) return;
                                 try {
                                     await deleteGroup(groupContextMenu.group.id);
                                 } catch (err) {
