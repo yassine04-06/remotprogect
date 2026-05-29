@@ -11,9 +11,9 @@ import {
     HardDrive,
     MonitorStop,
     RefreshCw,
-    AlertCircle,
     ChevronRight,
     Folder as FolderIcon,
+    GripVertical,
 } from 'lucide-react';
 
 interface PingHistory {
@@ -54,7 +54,8 @@ const HealthCard: React.FC<{
     conn: ServerConnection;
     data: CardData | undefined;
     onOpen: () => void;
-}> = ({ conn, data, onOpen }) => {
+    onGripDown?: (e: React.PointerEvent) => void;
+}> = ({ conn, data, onOpen, onGripDown }) => {
     const isOnline = data?.online ?? false;
     const latency = data?.latency ?? 0;
     const hasData = !!data;
@@ -65,8 +66,21 @@ const HealthCard: React.FC<{
             animate={{ opacity: 1, y: 0 }}
             whileHover={{ y: -4 }}
             transition={{ type: 'spring', stiffness: 380, damping: 26 }}
+            onMouseMove={e => {
+                const r = e.currentTarget.getBoundingClientRect();
+                e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`);
+                e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`);
+            }}
             className="sheen glass-card rounded-2xl p-5 transition-[border-color,box-shadow] duration-300 hover:border-accent/40 flex flex-col gap-4 relative overflow-hidden group hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_30%,transparent),0_20px_60px_-20px_color-mix(in_srgb,var(--color-accent)_45%,transparent)] [&:hover::after]:[animation:sheen_0.9s_ease]"
         >
+            {/* Cursor-follow spotlight */}
+            <div
+                className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                style={{
+                    background:
+                        'radial-gradient(260px circle at var(--mx,50%) var(--my,50%), color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 60%)',
+                }}
+            />
             {/* Status aura — online cards breathe softly */}
             <div
                 className={`absolute -top-12 -right-12 w-36 h-36 rounded-full blur-3xl transition-colors duration-1000 ${hasData ? (isOnline ? 'bg-green-500 animate-[breathe_3.5s_ease-in-out_infinite]' : 'bg-red-500 opacity-20') : 'bg-gray-500 opacity-15'}`}
@@ -82,34 +96,40 @@ const HealthCard: React.FC<{
                     >
                         {getProtocolIcon(conn.protocol)}
                     </div>
-                    <div className="min-w-0">
-                        <h3 className="font-semibold text-sm text-text-primary truncate max-w-[120px]">
+                    <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-sm text-text-primary truncate" title={conn.name}>
                             {conn.name}
                         </h3>
-                        <div className="text-[10px] uppercase font-bold tracking-wider text-text-muted mt-0.5 opacity-70 truncate">
+                        <div className="text-[10px] uppercase font-bold tracking-wider text-text-muted mt-0.5 opacity-70 truncate" title={`${conn.host}:${conn.port}`}>
                             {conn.host}:{conn.port}
                         </div>
                     </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                    {hasData ? (
-                        isOnline ? (
-                            <div className="flex items-center gap-1.5 text-green-400 bg-green-400/10 ring-1 ring-green-400/20 px-2 py-1 rounded-full text-xs font-bold">
-                                <span className="relative flex h-1.5 w-1.5">
-                                    <span className="absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-60 animate-ping" />
-                                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-green-400" />
-                                </span>
-                                Online
-                            </div>
-                        ) : (
-                            <div className="flex items-center gap-1.5 text-red-400 bg-red-400/10 ring-1 ring-red-400/20 px-2 py-1 rounded-full text-xs font-bold">
-                                <AlertCircle className="w-3 h-3" /> Offline
-                            </div>
-                        )
-                    ) : (
-                        <div className="text-xs text-text-muted font-mono animate-pulse">
-                            Wait...
-                        </div>
+                {/* compact status dot — keeps the whole top row free for the name */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                    <span
+                        title={hasData ? (isOnline ? 'Online' : 'Offline') : 'Checking…'}
+                        className="relative flex h-2.5 w-2.5"
+                    >
+                        {hasData && isOnline && (
+                            <span className="absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-50 animate-ping" />
+                        )}
+                        <span
+                            className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
+                                hasData ? (isOnline ? 'bg-green-400' : 'bg-red-400') : 'bg-text-muted/40 animate-pulse'
+                            }`}
+                        />
+                    </span>
+                    {onGripDown && (
+                        <button
+                            type="button"
+                            onPointerDown={onGripDown}
+                            title="Drag to reorder"
+                            aria-label="Drag to reorder"
+                            className="p-1 -mr-1 rounded-md text-text-muted/40 hover:text-accent hover:bg-accent/10 cursor-grab active:cursor-grabbing touch-none transition-all opacity-0 group-hover:opacity-100"
+                        >
+                            <GripVertical className="w-4 h-4" />
+                        </button>
                     )}
                 </div>
             </div>
@@ -169,6 +189,7 @@ export const HealthDashboard: React.FC = () => {
     const dragActive = useRef(false);
     const justDragged = useRef(false);
     const [dropEdge, setDropEdge] = useState<{ id: string; edge: 'left' | 'right' } | null>(null);
+    const [draggingId, setDraggingId] = useState<string | null>(null);
     // refs read inside the window pointer listeners (avoid stale closures)
     const edgeRef = useRef<{ id: string; edge: 'left' | 'right' } | null>(null);
     const connsRef = useRef(connections);
@@ -234,6 +255,7 @@ export const HealthDashboard: React.FC = () => {
             const s = startPt.current;
             if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) < 5) return;
             dragActive.current = true;
+            setDraggingId(dragRef.current);
         }
         const el = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest(
             '[data-cardid]'
@@ -258,6 +280,7 @@ export const HealthDashboard: React.FC = () => {
         dragActive.current = false;
         edgeRef.current = null;
         setDropEdge(null);
+        setDraggingId(null);
         if (wasDragging && dragId && edge) {
             justDragged.current = true;
             setTimeout(() => { justDragged.current = false; }, 0);
@@ -279,6 +302,7 @@ export const HealthDashboard: React.FC = () => {
 
     const startCardDrag = useCallback((e: React.PointerEvent, id: string) => {
         if (e.button !== 0) return;
+        e.preventDefault(); // stop text selection while dragging
         dragRef.current = id;
         startPt.current = { x: e.clientX, y: e.clientY };
         dragActive.current = false;
@@ -343,8 +367,9 @@ export const HealthDashboard: React.FC = () => {
 
     return (
         <div className="absolute inset-0 overflow-y-auto custom-scrollbar p-6 bg-base">
-            {/* Living aurora backdrop */}
+            {/* Living aurora backdrop + film grain */}
             <div className="aurora-bg" />
+            <div className="grain" />
             <div className="relative max-w-7xl mx-auto">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-8">
@@ -435,25 +460,29 @@ export const HealthDashboard: React.FC = () => {
                     </div>
                 )}
 
-                {/* Connection cards (direct). Drag a card onto another to reorder. */}
+                {/* Connection cards (direct). Drag from the grip handle to reorder. */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     {visibleConnections.map(conn => (
                         <div
                             key={conn.id}
                             data-cardid={conn.id}
-                            onPointerDown={currentFolderId ? e => startCardDrag(e, conn.id) : undefined}
-                            className={`relative rounded-xl ${currentFolderId ? 'cursor-grab active:cursor-grabbing' : ''} ${
-                                dropEdge?.id === conn.id
-                                    ? dropEdge.edge === 'left'
-                                        ? 'ring-2 ring-accent ring-offset-2 ring-offset-base'
-                                        : 'ring-2 ring-accent ring-offset-2 ring-offset-base'
-                                    : ''
+                            className={`relative rounded-2xl transition-[opacity,transform] duration-150 ${
+                                draggingId === conn.id ? 'opacity-40 scale-[0.97]' : ''
                             }`}
                         >
+                            {/* insertion bar */}
+                            {dropEdge?.id === conn.id && (
+                                <span
+                                    className={`absolute top-2 bottom-2 w-1 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent)] z-20 ${
+                                        dropEdge.edge === 'left' ? '-left-2.5' : '-right-2.5'
+                                    }`}
+                                />
+                            )}
                             <HealthCard
                                 conn={conn}
                                 data={healthData[conn.id]}
                                 onOpen={() => { if (!justDragged.current) openTab(conn); }}
+                                onGripDown={currentFolderId ? e => startCardDrag(e, conn.id) : undefined}
                             />
                         </div>
                     ))}

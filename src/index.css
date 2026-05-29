@@ -1,18 +1,19 @@
 @import 'tailwindcss';
 
 @theme {
-    --color-base: #11111b;
-    --color-surface: #181825;
-    --color-overlay: rgba(30, 30, 46, 0.7);
-    --color-border: rgba(49, 50, 68, 0.5);
-    --color-accent: #89b4fa;
-    --color-accent-secondary: #b4befe;
-    --color-text-primary: #cdd6f4;
-    --color-text-muted: #8087a0;
+    /* 2026 navy + indigo/violet palette */
+    --color-base: #0a0e1a;
+    --color-surface: #121a2e;
+    --color-overlay: rgba(18, 26, 46, 0.7);
+    --color-border: rgba(110, 120, 200, 0.16);
+    --color-accent: #6d8bff;
+    --color-accent-secondary: #a78bfa;
+    --color-text-primary: #e8ecf8;
+    --color-text-muted: #8b94ac;
 
-    --color-glass-bg: rgba(24, 24, 37, 0.8);
-    --color-glass-border: rgba(255, 255, 255, 0.05);
-    --color-hover: rgba(255, 255, 255, 0.1);
+    --color-glass-bg: rgba(18, 26, 46, 0.72);
+    --color-glass-border: rgba(255, 255, 255, 0.06);
+    --color-hover: rgba(255, 255, 255, 0.06);
 
     --font-sans: 'Inter', system-ui, sans-serif;
 }
@@ -189,6 +190,16 @@
         right: -10%;
         animation: aurora-drift 32s ease-in-out infinite reverse;
     }
+}
+
+/* Fine film grain — premium texture; very low opacity, non-interactive. */
+@utility grain {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.025;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* Hover sheen sweep — add to a `position:relative; overflow:hidden` element;
