@@ -159,11 +159,6 @@ export const CredentialManagerModal: React.FC = () => {
         }
     };
 
-    const handleTest = (e: React.MouseEvent, p: CredentialProfile) => {
-        e.stopPropagation();
-        alert(`Test connection stub: Testing profile ${p.name}`);
-    };
-
     return (
         <motion.div
             initial={{ opacity: 0 }}
@@ -241,15 +236,6 @@ export const CredentialManagerModal: React.FC = () => {
                                                 {p.name}
                                             </span>
                                             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <button
-                                                    onClick={e => handleTest(e, p)}
-                                                    className="p-1 rounded hover:bg-white/10 text-text-muted object-contain"
-                                                    title="Test Connection Profile"
-                                                >
-                                                    <span className="text-[10px] uppercase font-bold tracking-wider px-1">
-                                                        Test
-                                                    </span>
-                                                </button>
                                                 <button
                                                     onClick={e => handleDuplicate(e, p)}
                                                     className="p-1 rounded hover:bg-white/10 text-text-muted object-contain"

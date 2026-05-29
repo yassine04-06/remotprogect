@@ -21,5 +21,3 @@ export const createGroup = (name: string, parentId?: string | null) =>
 export const updateGroup = (id: string, name: string) => invoke('update_group', { id, name });
 
 export const deleteGroup = (id: string) => invoke('delete_group', { id });
-
-export const reorderGroups = (ids: string[]) => invoke<void>('reorder_groups', { ids });

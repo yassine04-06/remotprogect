@@ -22,9 +22,3 @@ export const sshKeyDelete = (id: string) => invoke<void>('ssh_key_delete', { id 
 
 export const sshKeyGenerate = (name: string, keyType: 'ed25519' | 'rsa', comment?: string) =>
     invoke<SshKey>('ssh_key_generate', { name, keyType, comment: comment ?? null });
-
-export const sshKeyImport = (
-    name: string,
-    privateKey: string,
-    passphrase?: string | null
-) => invoke<SshKey>('ssh_key_import', { name, privateKey, passphrase: passphrase ?? null });

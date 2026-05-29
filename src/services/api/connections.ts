@@ -40,5 +40,3 @@ export const updateLastConnected = (id: string) => invoke<void>('update_last_con
 
 export const updateConnectionGroup = (connectionId: string, groupId: string | null) =>
     invoke<void>('update_connection_group', { connectionId, groupId });
-
-export const getConnection = (id: string) => invoke<ServerConnection>('get_connection', { id });

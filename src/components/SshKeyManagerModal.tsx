@@ -57,13 +57,13 @@ export function SshKeyManagerModal({ onClose }: Props) {
             await api.sshKeyDelete(id);
             setKeys(k => k.filter(x => x.id !== id));
         } catch (e) {
-            alert(String(e));
+            setError(String(e));
         }
     };
 
     const handleImport = async () => {
         if (!importName.trim() || !importPem.trim() || !importPub.trim()) {
-            alert('Name, private key PEM and public key are required.');
+            setError('Name, private key PEM and public key are required.');
             return;
         }
         setImporting(true);
@@ -92,7 +92,7 @@ export function SshKeyManagerModal({ onClose }: Props) {
     };
 
     const handleGenerate = async () => {
-        if (!genName.trim()) { alert('Key name is required.'); return; }
+        if (!genName.trim()) { setError('Key name is required.'); return; }
         setGenerating(true);
         setError(null);
         try {
