@@ -1,6 +1,6 @@
 [package]
 name = "remote-manager"
-version = "1.0.3"
+version = "1.0.4"
 description = "NexoRC — Remote Connection Manager"
 authors = ["you"]
 edition = "2021"
