@@ -37,7 +37,11 @@ pub fn update_group_parent(
         .db
         .get()
         .map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
-    Ok(database::update_group_parent(&conn, &id, parent_id.as_deref())?)
+    Ok(database::update_group_parent(
+        &conn,
+        &id,
+        parent_id.as_deref(),
+    )?)
 }
 
 #[tauri::command]
