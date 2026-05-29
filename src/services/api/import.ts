@@ -1,9 +1,23 @@
 import { invoke } from '@tauri-apps/api/core';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import type { ImportedConnection } from '../../types/generated';
 
-/** Open a native file-picker dialog (runs on the Rust side). */
-export const pickImportFile = (filterName: string, extensions: string[]) =>
-    invoke<string | null>('import_pick_file', { filterName, extensions });
+/**
+ * Open a native file-picker via the Tauri dialog plugin (consistent with the
+ * vault export/import path). Replaces the previous rfd-based Rust command which
+ * could hang or open behind the window on Windows when called from an async cmd.
+ */
+export const pickImportFile = async (
+    filterName: string,
+    extensions: string[]
+): Promise<string | null> => {
+    const selected = await openDialog({
+        multiple: false,
+        directory: false,
+        filters: [{ name: filterName, extensions }],
+    });
+    return typeof selected === 'string' ? selected : null;
+};
 
 /** Parse a single .rdp file. Returns an array with one entry on success. */
 export const importRdpFile = (path: string) =>
