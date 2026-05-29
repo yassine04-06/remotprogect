@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 
 interface TransferEntry {
     id: string;
@@ -74,6 +75,13 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
     const transferTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
     const isSftp = tab.protocol === 'SFTP';
+
+    // Refs so the single drag-drop subscription always reads the latest values
+    // without re-subscribing (which would leak listeners + duplicate uploads).
+    const isActiveRef = useRef(isActive);
+    isActiveRef.current = isActive;
+    const currentPathRef = useRef(currentPath);
+    currentPathRef.current = currentPath;
 
     // ── MED-A3: evict SFTP pool entry on unmount ───────────────
     // Closes the idle TCP socket promptly; without this the backend TTL sweep
@@ -244,41 +252,43 @@ export function FileManagerView({ tab, isActive }: FileManagerViewProps) {
     useEffect(() => {
         if (!isActive) return;
 
-        let unlistenDrop: UnlistenFn;
-        let unlistenEnter: UnlistenFn;
-        let unlistenLeave: UnlistenFn;
+        // Tauri v2: the legacy `tauri://file-drop` events were renamed. Use the
+        // unified webview API which delivers 'enter'|'over'|'drop'|'leave' in one
+        // callback. Subscribe ONCE (deps []) and read live state via refs so we
+        // never re-subscribe (re-subscribing leaked listeners and caused one drop
+        // to trigger N duplicate uploads).
+        let cancelled = false;
+        let unlisten: UnlistenFn | undefined;
 
-        const setupDragDrop = async () => {
-            unlistenDrop = await listen<{ paths: string[] }>('tauri://file-drop', async event => {
-                setIsDraggingOver(false);
-                if (!isActive || !event.payload.paths || event.payload.paths.length === 0) return;
-
-                // Process each dropped file
-                const paths = event.payload.paths;
-                for (const localPath of paths) {
-                    await uploadSingleFile(localPath);
+        getCurrentWebview()
+            .onDragDropEvent(async event => {
+                const t = event.payload.type;
+                if (t === 'enter' || t === 'over') {
+                    if (isActiveRef.current) setIsDraggingOver(true);
+                } else if (t === 'leave') {
+                    setIsDraggingOver(false);
+                } else if (t === 'drop') {
+                    setIsDraggingOver(false);
+                    const paths = event.payload.paths ?? [];
+                    if (!isActiveRef.current || paths.length === 0) return;
+                    for (const localPath of paths) {
+                        await uploadSingleFile(localPath);
+                    }
+                    loadFiles(currentPathRef.current);
                 }
-                loadFiles(currentPath);
-            });
-
-            unlistenEnter = await listen('tauri://file-drop-hover', () => {
-                if (isActive) setIsDraggingOver(true);
-            });
-
-            unlistenLeave = await listen('tauri://file-drop-cancelled', () => {
-                setIsDraggingOver(false);
-            });
-        };
-
-        setupDragDrop();
+            })
+            .then(fn => {
+                if (cancelled) fn();
+                else unlisten = fn;
+            })
+            .catch(() => {});
 
         return () => {
-            if (unlistenDrop) unlistenDrop();
-            if (unlistenEnter) unlistenEnter();
-            if (unlistenLeave) unlistenLeave();
+            cancelled = true;
+            unlisten?.();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isActive, currentPath, tab.id]);
+    }, [tab.id]);
 
     const handleUpload = async () => {
         try {
