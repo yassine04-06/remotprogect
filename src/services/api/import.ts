@@ -50,3 +50,10 @@ export const importRoyalts = (path: string) =>
 /** Persist a pre-filtered list of ImportedConnection to the vault database. */
 export const bulkImportConnections = (connections: ImportedConnection[]) =>
     invoke<number>('bulk_import_connections', { connections });
+
+/**
+ * Parse a NexoRC vault JSON export and return connections as ImportedConnection[].
+ * Passwords are NOT transferred — user must re-enter them after import.
+ */
+export const importNexorcJson = (path: string) =>
+    invoke<ImportedConnection[]>('import_nexorc_json', { path });

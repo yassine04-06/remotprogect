@@ -362,12 +362,17 @@ export function RdpView({ tab, isActive }: RdpViewProps) {
 
     // ── Reconnect handler ───────────────────────────────────────────────────
 
-    const handleReconnect = useCallback(() => {
+    const handleReconnect = useCallback(async () => {
+        // Kill the old session first — without this the C# process leaks and
+        // the session map still holds the stale entry, causing the next
+        // rdpConnect to overlay a new process on a dead window handle.
+        isEmbeddedRef.current = false;
+        await api.rdpDisconnect(tab.id).catch(() => {});
         setEmbedStatus('idle');
         setErrorMsg('');
         setDisconnectCode(null);
         startConnection();
-    }, [startConnection]);
+    }, [tab.id, startConnection]);
 
     // ── Render ─────────────────────────────────────────────────────────────
     //

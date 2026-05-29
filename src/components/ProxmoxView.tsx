@@ -24,6 +24,8 @@ interface Props {
 export const ProxmoxView: React.FC<Props> = ({ connection }) => {
     const addToast = useUIStore(s => s.addToast);
     const [authData, setAuthData] = useState<ProxmoxAuthResponse | null>(null);
+    // true when using API token auth (no ticket/CSRF available)
+    const [isTokenAuth, setIsTokenAuth] = useState(false);
     const [resources, setResources] = useState<ProxmoxResource[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -38,12 +40,14 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
             // 90-15: API token auth bypasses ticket-based auth
             if (connection.proxmox_api_token_id && connection.proxmox_api_token_secret_encrypted) {
                 const res = await api.proxmoxAuthToken(connection.id);
+                setIsTokenAuth(true);
                 setAuthData(null);
                 setResources(res);
                 return;
             }
 
             const auth = await api.proxmoxAuth(connection.id);
+            setIsTokenAuth(false);
             setAuthData(auth);
 
             const res = await api.proxmoxGetResources(
@@ -64,19 +68,25 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
         initProxmox();
     }, [initProxmox]);
 
-    // Polling Loop
+    // Polling Loop — supports both password (ticket) and API token auth
     useEffect(() => {
-        if (!authData) return;
+        // For password auth we need authData; for token auth we just need isTokenAuth set
+        if (!authData && !isTokenAuth) return;
         let mounted = true;
 
         const tick = async () => {
             if (!mounted) return;
             try {
-                const res = await api.proxmoxGetResources(
-                    connection.host,
-                    connection.port,
-                    authData.ticket
-                );
+                let res: ProxmoxResource[];
+                if (isTokenAuth) {
+                    res = await api.proxmoxAuthToken(connection.id);
+                } else {
+                    res = await api.proxmoxGetResources(
+                        connection.host,
+                        connection.port,
+                        authData!.ticket
+                    );
+                }
                 if (mounted) setResources(res);
             } catch {
                 /* polling tick — ignore transient errors */
@@ -88,10 +98,17 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
             mounted = false;
             clearInterval(interval);
         };
-    }, [authData, connection.host, connection.port]);
+    }, [authData, isTokenAuth, connection.id, connection.host, connection.port]);
 
     const handleOpenConsole = async (res: ProxmoxResource) => {
-        if (!authData) return;
+        if (!authData) {
+            addToast({
+                type: 'info',
+                title: 'Console not available',
+                description: 'Console requires password authentication. API token auth does not support embedded console.',
+            });
+            return;
+        }
         const vmid = res.id.split('/')[2]; // e.g. qemu/100 -> 100
         const consoleType = res.type === 'qemu' ? 'kvm' : 'lxc';
         const url = `https://${connection.host}:${connection.port}/?console=${consoleType}&vmid=${vmid}&node=${res.node}&novnc=1`;
@@ -117,19 +134,24 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
     };
 
     const handleAction = async (vmid: string, node: string, type: string, action: string) => {
-        if (!authData) return;
         setActionLoading(vmid);
         try {
-            await api.proxmoxVmAction(
-                connection.host,
-                connection.port,
-                authData.ticket,
-                authData.CSRFPreventionToken,
-                node,
-                vmid,
-                type,
-                action
-            );
+            if (isTokenAuth) {
+                // Use API-token variant — credentials resolved server-side
+                await api.proxmoxVmActionToken(connection.id, node, vmid, type, action);
+            } else {
+                if (!authData) return;
+                await api.proxmoxVmAction(
+                    connection.host,
+                    connection.port,
+                    authData.ticket,
+                    authData.CSRFPreventionToken,
+                    node,
+                    vmid,
+                    type,
+                    action
+                );
+            }
             addToast({
                 type: 'success',
                 title: 'Action Sent',
@@ -139,11 +161,18 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
             // Optimistic fast refresh
             setTimeout(async () => {
                 try {
-                    const res = await api.proxmoxGetResources(
-                        connection.host,
-                        connection.port,
-                        authData.ticket
-                    );
+                    let res: ProxmoxResource[];
+                    if (isTokenAuth) {
+                        res = await api.proxmoxAuthToken(connection.id);
+                    } else if (authData) {
+                        res = await api.proxmoxGetResources(
+                            connection.host,
+                            connection.port,
+                            authData.ticket
+                        );
+                    } else {
+                        return;
+                    }
                     setResources(res);
                 } catch {
                     /* optimistic refresh — ignore errors */

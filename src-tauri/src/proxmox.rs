@@ -529,6 +529,84 @@ pub fn proxmox_forget_cert(
     Ok(())
 }
 
+/// API-token variant of vm action — uses `PVEAPIToken` Authorization header
+/// instead of a cookie + CSRF token.  `connection_id` is resolved server-side
+/// (CRIT-A4: credentials never cross the IPC boundary).
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn proxmox_vm_action_token(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    node: String,
+    vmid: String,
+    vm_type: String,
+    action: String,
+) -> Result<String, AppError> {
+    let allowed = ["start", "stop", "shutdown", "reboot", "suspend", "resume"];
+    if !allowed.contains(&action.as_str()) {
+        return Err(AppError::Validation(format!(
+            "Action not allowed: '{}'",
+            action
+        )));
+    }
+
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| AppError::Internal(format!("DB pool: {}", e)))?;
+    let all = crate::database::get_connections(&conn)?;
+    let connection = all
+        .into_iter()
+        .find(|c| c.id == connection_id)
+        .ok_or_else(|| AppError::Internal("Connection not found".to_string()))?;
+
+    let host = connection.host.clone();
+    let port = connection.port as u16;
+    let token_id = connection
+        .proxmox_api_token_id
+        .clone()
+        .ok_or_else(|| AppError::Internal("No API token ID on connection".to_string()))?;
+    let token_secret_enc = connection
+        .proxmox_api_token_secret_encrypted
+        .clone()
+        .ok_or_else(|| AppError::Internal("No API token secret on connection".to_string()))?;
+
+    let master_key: [u8; 32] = {
+        let key_guard = state.encryption_key.read().map_err(lock_err)?;
+        *key_guard
+            .as_ref()
+            .ok_or_else(|| AppError::AuthFailed("Vault locked".to_string()))?
+    };
+    let token_secret = crate::encryption::decrypt_auto(&token_secret_enc, &master_key)
+        .map_err(|e| AppError::AuthFailed(format!("Decrypt API token: {}", e)))?;
+    drop(conn);
+
+    let auth_header = format!("PVEAPIToken={}={}", token_id, token_secret);
+    let client = pinned_client(&host, port, &state.data_dir).await?;
+    let url = format!(
+        "https://{}:{}/api2/json/nodes/{}/{}/{}/status/{}",
+        host, port, node, vm_type, vmid, action
+    );
+
+    let res = client
+        .post(&url)
+        .header("Authorization", auth_header)
+        .send()
+        .await
+        .map_err(|e| AppError::Network(format!("Request failed: {}", e)))?;
+
+    let status = res.status();
+    if !status.is_success() {
+        let err_text = res.text().await.unwrap_or_default();
+        return Err(AppError::Network(format!(
+            "Action failed. Status: {} — {}",
+            status, err_text
+        )));
+    }
+
+    Ok("Action started successfully".to_string())
+}
+
 // ── H-5: Proxmox ticket + navigation hardening ────────────────────────────────
 //
 // Two-layer defence:

@@ -1189,6 +1189,88 @@ pub async fn bulk_import_connections(
     Ok(count)
 }
 
+// ── NexoRC vault JSON → ImportedConnection ───────────────────────────────────
+//
+// Reads an exported NexoRC vault JSON file and converts each ServerConnection
+// into an ImportedConnection for selective merge-import via the ImportDialog.
+// Passwords are NOT transferred — the user must re-enter credentials after import.
+
+#[tauri::command]
+pub async fn import_nexorc_json(path: String) -> Result<Vec<ImportedConnection>, String> {
+    use crate::database::models::{ExportData, Group};
+    use std::collections::HashMap;
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("Cannot read file: {}", e))?;
+    let export: ExportData =
+        serde_json::from_slice(&bytes).map_err(|e| format!("Invalid NexoRC JSON: {}", e))?;
+
+    // Build group_id → name map for resolving a human-readable group path.
+    let group_map: HashMap<String, Group> = export
+        .groups
+        .iter()
+        .map(|g| (g.id.clone(), g.clone()))
+        .collect();
+
+    // Walk group ancestors to build "Parent/Child" path.
+    let resolve_group_path = |gid: &str| -> Option<String> {
+        let mut parts = Vec::new();
+        let mut current_id = gid.to_string();
+        for _ in 0..10 {
+            // guard against cycles
+            if let Some(g) = group_map.get(&current_id) {
+                parts.push(g.name.clone());
+                match &g.parent_id {
+                    Some(pid) => current_id = pid.clone(),
+                    None => break,
+                }
+            } else {
+                break;
+            }
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            parts.reverse();
+            Some(parts.join("/"))
+        }
+    };
+
+    let list = export
+        .connections
+        .into_iter()
+        .map(|c| {
+            let group_path = c.group_id.as_deref().and_then(resolve_group_path);
+            ImportedConnection {
+                name: c.name,
+                host: c.host,
+                port: c.port,
+                protocol: c.protocol,
+                username: c.username,
+                password: None, // never transfer encrypted blobs — user re-enters
+                domain: if c.domain.is_empty() {
+                    None
+                } else {
+                    Some(c.domain)
+                },
+                group_path,
+                rdp_width: Some(c.rdp_width).filter(|&w| w > 0),
+                rdp_height: Some(c.rdp_height).filter(|&h| h > 0),
+                rdp_color_depth: Some(c.rdp_color_depth).filter(|&d| d > 0),
+                rdp_redirect_drives: c.rdp_redirect_drives,
+                rdp_redirect_printers: c.rdp_redirect_printers,
+                rdp_redirect_audio: c.rdp_redirect_audio,
+                ssh_key_path: None,
+                source: "nexorc".to_string(),
+                warning: Some(
+                    "Passwords not transferred — re-enter credentials after import.".to_string(),
+                ),
+            }
+        })
+        .collect();
+
+    Ok(list)
+}
+
 // ── M-1: Parser unit tests ────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {

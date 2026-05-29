@@ -610,6 +610,7 @@ pub fn run() {
             commands::export_import::import_connections,
             commands::export_import::vault_export_file,
             commands::export_import::vault_import_file,
+            commands::export_import::export_connections_csv,
             // SSH
             commands::ssh_cmds::ssh_connect,
             commands::ssh_cmds::ssh_send_input,
@@ -680,6 +681,7 @@ pub fn run() {
             proxmox::proxmox_auth,
             proxmox::proxmox_get_resources,
             proxmox::proxmox_vm_action,
+            proxmox::proxmox_vm_action_token,
             proxmox::proxmox_open_console,
             proxmox::proxmox_auth_token,
             proxmox::proxmox_get_fingerprint,
@@ -711,6 +713,7 @@ pub fn run() {
             import::import_rdm,
             import::import_royalts,
             import::bulk_import_connections,
+            import::import_nexorc_json,
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| fatal_error(&format!("Error running the Tauri application:\n{}", e)));

@@ -124,6 +124,30 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         }
     };
 
+    // Export connection list as CSV (no passwords)
+    const handleExportCsv = async () => {
+        try {
+            const path = await saveDialog({
+                defaultPath: `nexorc_connections_${new Date().toISOString().split('T')[0]}.csv`,
+                filters: [{ name: 'CSV Spreadsheet', extensions: ['csv'] }],
+            });
+            if (!path) return;
+            await api.exportConnectionsCsv(path);
+            addToast({
+                type: 'success',
+                title: 'CSV exported',
+                description: 'Connection list saved (no passwords).',
+            });
+        } catch (err: unknown) {
+            const appError = parseBackendError(err);
+            addToast({
+                type: 'error',
+                title: 'CSV export failed',
+                description: getUserFriendlyErrorMessage(appError),
+            });
+        }
+    };
+
     // 90-23: Native filesystem import via Tauri open dialog
     const handleImport = async () => {
         const path = await openDialog({
@@ -497,6 +521,21 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 </span>
                                                 <p className="text-[10px] text-text-muted mt-1">
                                                     Restore from backup file
+                                                </p>
+                                            </button>
+
+                                            <button
+                                                onClick={handleExportCsv}
+                                                className="flex flex-col items-center justify-center p-6 bg-accent/5 border border-border rounded-2xl hover:bg-accent/10 hover:border-accent/30 transition-all group col-span-2"
+                                            >
+                                                <div className="w-12 h-12 rounded-xl bg-green-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-all">
+                                                    <Download className="w-6 h-6 text-green-400" />
+                                                </div>
+                                                <span className="text-sm font-bold">
+                                                    Export Connections as CSV
+                                                </span>
+                                                <p className="text-[10px] text-text-muted mt-1">
+                                                    Spreadsheet with connection metadata (no passwords)
                                                 </p>
                                             </button>
                                         </div>

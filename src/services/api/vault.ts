@@ -49,3 +49,7 @@ export const importConnections = (data: ExportData) => invoke('import_connection
 // 90-23: Filesystem-based vault export/import
 export const vaultExportFile = (path: string) => invoke<void>('vault_export_file', { path });
 export const vaultImportFile = (path: string) => invoke<void>('vault_import_file', { path });
+
+// Export connection metadata as CSV (no passwords)
+export const exportConnectionsCsv = (path: string) =>
+    invoke<void>('export_connections_csv', { path });

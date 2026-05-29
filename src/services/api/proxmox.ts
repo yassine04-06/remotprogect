@@ -38,6 +38,22 @@ export const proxmoxVmAction = (
     action: string
 ) => invoke<string>('proxmox_vm_action', { host, port, ticket, csrf, node, vmid, vmType, action });
 
+// API-token variant: credentials resolved server-side (CRIT-A4)
+export const proxmoxVmActionToken = (
+    connectionId: string,
+    node: string,
+    vmid: string,
+    vmType: string,
+    action: string
+) =>
+    invoke<string>('proxmox_vm_action_token', {
+        connectionId,
+        node,
+        vmid,
+        vmType,
+        action,
+    });
+
 export const proxmoxOpenConsole = (url: string, label: string, title: string, ticket: string) =>
     invoke('proxmox_open_console', { url, label, title, ticket });
 

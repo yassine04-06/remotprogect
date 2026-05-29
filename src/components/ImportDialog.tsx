@@ -9,6 +9,7 @@ import {
     importSshConfig,
     importRdm,
     importRoyalts,
+    importNexorcJson,
     bulkImportConnections,
 } from '../services/api/import';
 import type { ImportedConnection } from '../types/generated';
@@ -23,7 +24,7 @@ const PROTO_STYLE: Record<string, string> = {
     FTP:  'bg-orange-500/15 text-orange-400 border-orange-500/30',
 };
 
-type TabId = 'putty' | 'rdp' | 'mremoteng' | 'ssh_config' | 'rdm' | 'royalts';
+type TabId = 'putty' | 'rdp' | 'mremoteng' | 'ssh_config' | 'rdm' | 'royalts' | 'nexorc';
 
 interface TabDef {
     id: TabId;
@@ -68,6 +69,12 @@ const TABS: TabDef[] = [
         label: 'RoyalTS',
         icon: <Database className="w-4 h-4" />,
         description: 'Import from a RoyalTS export (.rtsx plain XML or .rtsz ZIP archive)',
+    },
+    {
+        id: 'nexorc',
+        label: 'NexoRC',
+        icon: <Server className="w-4 h-4" />,
+        description: 'Merge connections from another NexoRC vault JSON export (passwords not transferred)',
     },
 ];
 
@@ -260,6 +267,26 @@ export function ImportDialog() {
             const list = await importRdm(path);
             if (list.length === 0) {
                 setError('No importable connections found (RDP, SSH, VNC, SFTP, FTP only).');
+            } else {
+                loadConnList(list);
+            }
+        } catch (e) {
+            setError(String(e));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // ── NexoRC vault JSON ───────────────────────────────────────────────────
+    const handleBrowseNexorc = async () => {
+        const path = await pickImportFile('NexoRC Vault', ['json']).catch(() => null);
+        if (!path) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const list = await importNexorcJson(path);
+            if (list.length === 0) {
+                setError('No connections found in the NexoRC vault file.');
             } else {
                 loadConnList(list);
             }
@@ -475,6 +502,18 @@ export function ImportDialog() {
                         >
                             <ChevronRight className="w-4 h-4" />
                             Browse .rtsx / .rtsz file&hellip;
+                        </button>
+                    )}
+
+                    {/* NexoRC */}
+                    {tab === 'nexorc' && (
+                        <button
+                            onClick={handleBrowseNexorc}
+                            disabled={loading}
+                            className="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors disabled:opacity-50"
+                        >
+                            <ChevronRight className="w-4 h-4" />
+                            Browse NexoRC vault JSON&hellip;
                         </button>
                     )}
                 </div>
