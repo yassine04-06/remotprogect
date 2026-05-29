@@ -181,11 +181,7 @@ struct TransferProgress {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 fn emit_progress(app: &tauri::AppHandle, id: &str, transferred: u64, total: u64, done: bool) {
-    let percent = if total > 0 {
-        (transferred * 100 / total).min(100) as u8
-    } else {
-        0
-    };
+    let percent = (transferred * 100).checked_div(total).unwrap_or(0).min(100) as u8;
     let _ = app.emit(
         "transfer:progress",
         TransferProgress {
