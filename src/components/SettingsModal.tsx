@@ -17,6 +17,7 @@ import {
 import { useUIStore, useConnectionStore } from '../store';
 import * as api from '../services/api';
 import { save as saveDialog, open as openDialog, confirm } from '@tauri-apps/plugin-dialog';
+import { getVersion } from '@tauri-apps/api/app';
 import { parseBackendError, getUserFriendlyErrorMessage } from '../utils/errorMapper';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ProxmoxCertsModal } from './ProxmoxCertsModal';
@@ -36,6 +37,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [activeSection, setActiveSection] = useState<'security' | 'data' | 'appearance' | 'about'>(
         'security'
     );
+    const [appVersion, setAppVersion] = useState('');
     const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'latest' | 'error' | 'installing'>('idle');
     const [updateInfo, setUpdateInfo] = useState<{ version?: string; notes?: string } | null>(null);
     // MED-A11: allow multiple instances setting
@@ -43,6 +45,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [allowMultipleLoading, setAllowMultipleLoading] = useState(false);
     // MED-A8: Proxmox pinned certs modal
     const [showCertsModal, setShowCertsModal] = useState(false);
+
+    useEffect(() => {
+        getVersion().then(setAppVersion).catch(() => setAppVersion('?'));
+    }, []);
 
     // 90-22: ESC closes the modal
     useEffect(() => {
@@ -272,7 +278,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                         <div className="mt-auto p-4 border-t border-border opacity-40">
                             <div className="text-[9px] font-bold uppercase tracking-widest">
-                                NexoRC v0.1.0-alpha
+                                NexoRC v{appVersion}
                             </div>
                         </div>
                     </div>
@@ -599,7 +605,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         <div>
                                             <h2 className="text-lg font-black">About & Updates</h2>
                                             <p className="text-xs text-text-muted mt-1">
-                                                NexoRC v1.0.0
+                                                NexoRC v{appVersion}
                                             </p>
                                         </div>
 

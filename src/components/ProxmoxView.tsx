@@ -16,6 +16,9 @@ import {
 import * as api from '../services/api';
 import type { ProxmoxResource, ProxmoxAuthResponse, ServerConnection } from '../types';
 import { useUIStore } from '../store';
+import { parseBackendError, getUserFriendlyErrorMessage } from '../utils/errorMapper';
+
+const errMsg = (e: unknown) => getUserFriendlyErrorMessage(parseBackendError(e));
 
 interface Props {
     connection: ServerConnection;
@@ -57,7 +60,7 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
             );
             setResources(res);
         } catch (err: unknown) {
-            setError(String(err));
+            setError(errMsg(err));
         } finally {
             setIsLoading(false);
         }
@@ -128,7 +131,7 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
             addToast({
                 type: 'error',
                 title: 'Failed to open console',
-                description: err instanceof Error ? err.message : String(err),
+                description: errMsg(err),
             });
         }
     };
@@ -179,7 +182,7 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
                 }
             }, 2000);
         } catch (err: unknown) {
-            addToast({ type: 'error', title: 'Action Failed', description: String(err) });
+            addToast({ type: 'error', title: 'Action Failed', description: errMsg(err) });
         } finally {
             setActionLoading(null);
         }
