@@ -20,7 +20,6 @@ import {
     Globe,
     MoreVertical,
     FolderSync,
-    Library,
     KeyRound,
     Star,
     Tag,
@@ -55,8 +54,6 @@ export const ServerSidebar: React.FC = () => {
 
     const setShowConnectionDialog = useUIStore(s => s.setShowConnectionDialog);
     const setShowGroupDialog = useUIStore(s => s.setShowGroupDialog);
-    const setShowPortScanner = useUIStore(s => s.setShowPortScanner);
-    const setShowCommandLibraryDialog = useUIStore(s => s.setShowCommandLibraryDialog);
     const setShowImportDialog = useUIStore(s => s.setShowImportDialog);
     const addToast = useUIStore(s => s.addToast);
 
@@ -555,24 +552,6 @@ export const ServerSidebar: React.FC = () => {
                         aria-label="Import Connections"
                     >
                         <FolderSync className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                        type="button"
-                        className="p-1.5 hover:bg-accent/5 rounded-md text-text-muted hover:text-accent transition-colors"
-                        onClick={() => setShowCommandLibraryDialog(true)}
-                        title="Command Library"
-                        aria-label="Command Library"
-                    >
-                        <Library className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                        type="button"
-                        className="p-1.5 hover:bg-accent/5 rounded-md text-text-muted hover:text-accent transition-colors"
-                        onClick={() => setShowPortScanner(true)}
-                        title="Network Scan"
-                        aria-label="Network Scan"
-                    >
-                        <Globe className="w-3.5 h-3.5" />
                     </button>
                     <button
                         type="button"

@@ -369,13 +369,13 @@ export function ImportDialog() {
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-border flex-shrink-0">
                     <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center">
+                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-accent/25 to-accent-secondary/10 ring-1 ring-accent/20 flex items-center justify-center">
                             <Download className="w-5 h-5 text-accent" />
                         </div>
                         <div>
                             <h2 className="text-base font-bold text-text-primary">Import Connections</h2>
                             <p className="text-xs text-text-muted mt-0.5">
-                                Import from PuTTY, .rdp, mRemoteNG, SSH config, RDM, or RoyalTS
+                                PuTTY · .rdp · mRemoteNG · SSH config · RDM · RoyalTS · NexoRC
                             </p>
                         </div>
                     </div>
@@ -387,16 +387,16 @@ export function ImportDialog() {
                     </button>
                 </div>
 
-                {/* Tab bar */}
-                <div className="flex gap-1 px-6 pt-4 flex-shrink-0">
+                {/* Tab bar — horizontally scrollable, single line */}
+                <div className="flex gap-1.5 px-6 pt-4 flex-shrink-0 overflow-x-auto custom-scrollbar">
                     {TABS.map(t => (
                         <button
                             key={t.id}
                             onClick={() => handleTabChange(t.id)}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium shrink-0 whitespace-nowrap border transition-all ${
                                 tab === t.id
-                                    ? 'bg-accent/10 text-accent border border-accent/20'
-                                    : 'text-text-muted hover:text-text-primary hover:bg-white/5'
+                                    ? 'bg-accent text-white border-accent shadow-[0_4px_14px_-4px_var(--color-accent)]'
+                                    : 'text-text-muted border-transparent hover:text-text-primary hover:bg-white/5'
                             }`}
                         >
                             {t.icon}
