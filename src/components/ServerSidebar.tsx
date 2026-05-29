@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { List } from 'react-window';
 import { useConnectionStore, useTabStore, useUIStore, useCredentialStore } from '../store';
 import type { ServerConnection, Group } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -30,16 +29,6 @@ import type { CredentialProfile } from '../types';
 import * as api from '../services/api';
 import { confirm } from '@tauri-apps/plugin-dialog';
 
-// react-window 2.x `List` uses different prop names than 1.x;
-// cast to a compatible type so JSX doesn't need inline generic parameters.
-const VirtualList = List as React.ComponentType<{
-    rowComponent: React.ComponentType<{ index: number; style: React.CSSProperties }>;
-    rowCount: number;
-    rowHeight: number;
-    rowProps?: object;
-    style?: React.CSSProperties;
-}>;
-
 interface ContextMenuState {
     x: number;
     y: number;
@@ -47,8 +36,8 @@ interface ContextMenuState {
 }
 
 type FlatItem =
-    | { type: 'group'; id: string; group: Group; connectionsCount: number; isExpanded: boolean }
-    | { type: 'server'; id: string; connection: ServerConnection };
+    | { type: 'group'; id: string; group: Group; connectionsCount: number; isExpanded: boolean; depth: number }
+    | { type: 'server'; id: string; connection: ServerConnection; depth: number };
 
 export const ServerSidebar: React.FC = () => {
     const connections = useConnectionStore(s => s.connections);
@@ -75,9 +64,6 @@ export const ServerSidebar: React.FC = () => {
 
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-    // 30-13: virtual list container height tracked via ResizeObserver
-    const listContainerRef = useRef<HTMLDivElement>(null);
-    const [listHeight, setListHeight] = useState(400);
     const [groupContextMenu, setGroupContextMenu] = useState<{
         x: number;
         y: number;
@@ -88,8 +74,31 @@ export const ServerSidebar: React.FC = () => {
     // 90-7: tag filter + sort
     const [tagFilter, setTagFilter] = useState<string | null>(null);
     const [sortMode, setSortMode] = useState<'alpha' | 'recent' | 'favorites'>('alpha');
-    // 90-9: drag & drop
+    // 90-9: drag & drop — id of folder/'root' currently hovered as drop target
     const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
+    // Manual ordering (persisted). { id, pos } = current drop indicator.
+    const [dropInfo, setDropInfo] = useState<{ id: string; pos: 'before' | 'after' | 'inside' } | null>(null);
+    // Single mixed manual order for folders + connections. Keys: "g:<id>" / "c:<id>".
+    const [itemOrder, setItemOrder] = useState<string[]>(() => {
+        try { return JSON.parse(localStorage.getItem('nexorc_item_order') || '[]'); } catch { return []; }
+    });
+    const keyOf = (kind: 'conn' | 'group', id: string) => `${kind === 'conn' ? 'c' : 'g'}:${id}`;
+    const orderIndex = useCallback(
+        (key: string) => { const i = itemOrder.indexOf(key); return i < 0 ? Infinity : i; },
+        [itemOrder]
+    );
+    // Move dragKey adjacent to targetKey within the persisted mixed order.
+    const reorderItems = (dragKey: string, targetKey: string, pos: 'before' | 'after', allKeys: string[]) => {
+        const base = [...itemOrder.filter(x => allKeys.includes(x)), ...allKeys.filter(x => !itemOrder.includes(x))];
+        const from = base.indexOf(dragKey);
+        if (from > -1) base.splice(from, 1);
+        let to = base.indexOf(targetKey);
+        if (to < 0) to = base.length;
+        if (pos === 'after') to += 1;
+        base.splice(to, 0, dragKey);
+        setItemOrder(base);
+        localStorage.setItem('nexorc_item_order', JSON.stringify(base));
+    };
 
     useEffect(() => {
         const handler = () => {
@@ -101,19 +110,9 @@ export const ServerSidebar: React.FC = () => {
         return () => window.removeEventListener('click', handler);
     }, []);
 
-    useEffect(() => {
-        const el = listContainerRef.current;
-        if (!el) return;
-        const ro = new ResizeObserver(([entry]) => {
-            if (entry) setListHeight(entry.contentRect.height);
-        });
-        ro.observe(el);
-        setListHeight(el.clientHeight);
-        return () => ro.disconnect();
-    }, []);
-
     const toggleGroup = useCallback((id: string, e: React.MouseEvent) => {
         e.stopPropagation();
+        if (justDragged.current) return; // ignore the click right after a drag
         setExpandedGroups(prev => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
@@ -165,30 +164,124 @@ export const ServerSidebar: React.FC = () => {
         }
     }, [addToast, refreshConnections]);
 
-    // 90-9: drag & drop handlers
-    const handleDragStart = useCallback((e: React.DragEvent, connectionId: string) => {
-        e.dataTransfer.setData('connectionId', connectionId);
-        e.dataTransfer.effectAllowed = 'move';
-    }, []);
+    // ── Pointer-based drag & drop ─────────────────────────────────────────────
+    // Tauri's WebView intercepts native HTML5 drag events (for OS file-drop), so
+    // we implement reordering/nesting with pointer events instead. Rows carry
+    // data-rowid / data-rowkind; we hit-test with elementFromPoint on move.
+    const dragRef = useRef<{ kind: 'conn' | 'group'; id: string } | null>(null);
+    const dropRef = useRef<{ id: string | null; kind: 'conn' | 'group' | 'root'; pos: 'before' | 'after' | 'inside' } | null>(null);
+    const startPt = useRef<{ x: number; y: number } | null>(null);
+    const dragActive = useRef(false);
+    const justDragged = useRef(false);
 
-    const handleDragOver = useCallback((e: React.DragEvent, groupId: string) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        setDragOverGroupId(groupId);
-    }, []);
-
-    const handleDrop = useCallback(async (e: React.DragEvent, groupId: string | null) => {
-        e.preventDefault();
-        setDragOverGroupId(null);
-        const connectionId = e.dataTransfer.getData('connectionId');
-        if (!connectionId) return;
+    const performMove = useCallback(async () => {
+        const drag = dragRef.current;
+        const drop = dropRef.current;
+        if (!drag || !drop) return;
+        const { kind: dragKind, id: dragId } = drag;
+        if (drop.kind !== 'root' && drop.id === dragId) return;
         try {
-            await api.updateConnectionGroup(connectionId, groupId);
+            // Move into a folder (or to root)
+            if (drop.kind === 'root' || (drop.pos === 'inside' && drop.kind === 'group')) {
+                const target = drop.kind === 'root' ? null : drop.id;
+                if (dragKind === 'conn') await api.updateConnectionGroup(dragId, target);
+                else if (dragId !== target) await api.updateGroupParent(dragId, target);
+                await refreshConnections();
+                return;
+            }
+            // before/after a target row (folder OR connection) — interleaved order.
+            const targetId = drop.id as string;
+            const targetParent =
+                drop.kind === 'group'
+                    ? (groups.find(g => g.id === targetId)?.parent_id ?? null)
+                    : (connections.find(c => c.id === targetId)?.group_id ?? null);
+            // reparent dragged item into the target's parent if needed
+            if (dragKind === 'conn') {
+                const cur = connections.find(c => c.id === dragId)?.group_id ?? null;
+                if (cur !== targetParent) await api.updateConnectionGroup(dragId, targetParent);
+            } else {
+                const cur = groups.find(g => g.id === dragId)?.parent_id ?? null;
+                if (cur !== targetParent && dragId !== targetParent) await api.updateGroupParent(dragId, targetParent);
+            }
+            // single mixed order array — folders & connections interleave freely
+            const dir: 'before' | 'after' = drop.pos === 'before' ? 'before' : 'after';
+            const allKeys = [
+                ...groups.map(g => keyOf('group', g.id)),
+                ...connections.map(c => keyOf('conn', c.id)),
+            ];
+            reorderItems(keyOf(dragKind, dragId), keyOf(drop.kind as 'conn' | 'group', targetId), dir, allKeys);
             await refreshConnections();
         } catch (err) {
             addToast({ type: 'error', title: 'Move failed', description: String(err) });
         }
-    }, [addToast, refreshConnections]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [groups, connections, itemOrder, refreshConnections, addToast]);
+
+    const onPointerMove = useCallback((e: PointerEvent) => {
+        const drag = dragRef.current;
+        if (!drag) return;
+        // require a small threshold before activating drag (so clicks still work)
+        if (!dragActive.current) {
+            const s = startPt.current;
+            if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) < 5) return;
+            dragActive.current = true;
+        }
+        const el = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest(
+            '[data-rowid]'
+        ) as HTMLElement | null;
+        if (!el) {
+            dropRef.current = { id: null, kind: 'root', pos: 'inside' };
+            setDragOverGroupId('root');
+            setDropInfo(null);
+            return;
+        }
+        const id = el.getAttribute('data-rowid')!;
+        const kind = el.getAttribute('data-rowkind') as 'conn' | 'group';
+        const r = el.getBoundingClientRect();
+        const y = e.clientY - r.top;
+        let pos: 'before' | 'after' | 'inside';
+        if (kind === 'group') {
+            // wider before/after bands (≈40% each) so dropping BETWEEN folders is
+            // easy; only the central ~20% means "into the folder".
+            pos = y < r.height * 0.4 ? 'before' : y > r.height * 0.6 ? 'after' : 'inside';
+        } else {
+            pos = y < r.height * 0.5 ? 'before' : 'after';
+        }
+        dropRef.current = { id, kind, pos };
+        setDragOverGroupId(null);
+        setDropInfo(id === drag.id ? null : { id, pos });
+    }, []);
+
+    const onPointerUp = useCallback(() => {
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        const wasDragging = dragActive.current;
+        dragActive.current = false;
+        if (wasDragging) {
+            justDragged.current = true; // suppress the click that follows a drag
+            setTimeout(() => { justDragged.current = false; }, 0);
+            performMove();
+        }
+        dragRef.current = null;
+        dropRef.current = null;
+        startPt.current = null;
+        setDropInfo(null);
+        setDragOverGroupId(null);
+    }, [onPointerMove, performMove]);
+
+    const startDrag = useCallback(
+        (e: React.PointerEvent, kind: 'conn' | 'group', id: string) => {
+            if (e.button !== 0) return;
+            dragRef.current = { kind, id };
+            startPt.current = { x: e.clientX, y: e.clientY };
+            dragActive.current = false;
+            window.addEventListener('pointermove', onPointerMove);
+            window.addEventListener('pointerup', onPointerUp);
+        },
+        [onPointerMove, onPointerUp]
+    );
+
+    // 30-13: O(1) tab-status lookup — replaces O(n) find inside every renderItem call
 
     // 30-13: O(1) tab-status lookup — replaces O(n) find inside every renderItem call
     const tabStatusByConn = useMemo(() => {
@@ -232,68 +325,92 @@ export const ServerSidebar: React.FC = () => {
             list = list.filter(c => c.is_favorite);
         } else if (sortMode === 'recent') {
             list = [...list].sort((a, b) => (b.last_connected_at ?? 0) - (a.last_connected_at ?? 0));
-        } else {
-            list = [...list].sort((a, b) => a.name.localeCompare(b.name));
         }
+        // 'alpha' → ordering handled per-parent in visibleNodes (mixed manual order)
         return list;
     }, [connections, searchQuery, tagFilter, sortMode]);
 
-    const ungrouped = useMemo(
-        () => filteredConnections.filter(c => !c.group_id),
-        [filteredConnections]
+    // Recursively count connections in a folder + all its subfolders.
+    const countDeep = useCallback(
+        (groupId: string): number => {
+            let n = connections.filter(c => c.group_id === groupId).length;
+            for (const child of groups.filter(g => g.parent_id === groupId)) n += countDeep(child.id);
+            return n;
+        },
+        [connections, groups]
     );
 
-    const grouped = useMemo(
-        () =>
-            groups
-                .map(g => ({
-                    group: g,
-                    connections: filteredConnections.filter(c => c.group_id === g.id),
-                }))
-                .filter(g => g.connections.length > 0 || !searchQuery),
-        [groups, filteredConnections, searchQuery]
-    );
-
+    // Flatten the folder tree (supports nested subfolders via parent_id) into an
+    // ordered list with depth, honoring expand/collapse — feeds the virtual list.
     const visibleNodes = useMemo(() => {
         const nodes: FlatItem[] = [];
-
-        ungrouped.forEach(c => {
-            nodes.push({ type: 'server', id: c.id, connection: c });
-        });
-
-        grouped.forEach(({ group, connections: gConns }) => {
-            const isExpanded = expandedGroups.has(group.id);
-            nodes.push({
-                type: 'group',
-                id: group.id,
-                group,
-                connectionsCount: gConns.length,
-                isExpanded,
+        // Children of a parent = subfolders + connections, INTERLEAVED by the
+        // single mixed manual order (so a session can sit between two folders).
+        // Fallback when unordered: folders before connections, then name.
+        const childrenOf = (parentId: string | null) => {
+            const folders = groups
+                .filter(g => (g.parent_id ?? null) === parentId)
+                .map(g => ({ kind: 'group' as const, id: g.id, group: g }));
+            const conns = filteredConnections
+                .filter(c => (c.group_id ?? null) === parentId)
+                .map(c => ({ kind: 'conn' as const, id: c.id, conn: c }));
+            const all = [...folders, ...conns];
+            all.sort((a, b) => {
+                const ia = orderIndex(keyOf(a.kind, a.id));
+                const ib = orderIndex(keyOf(b.kind, b.id));
+                if (ia !== ib) return ia - ib;
+                // both unordered → folders first, then alpha
+                if (a.kind !== b.kind) return a.kind === 'group' ? -1 : 1;
+                const an = a.kind === 'group' ? a.group.name : a.conn.name;
+                const bn = b.kind === 'group' ? b.group.name : b.conn.name;
+                return an.localeCompare(bn);
             });
-            if (isExpanded) {
-                gConns.forEach(c => {
-                    nodes.push({ type: 'server', id: c.id, connection: c });
-                });
-            }
-        });
+            return all;
+        };
 
+        const walk = (parentId: string | null, depth: number) => {
+            for (const item of childrenOf(parentId)) {
+                if (item.kind === 'group') {
+                    const isExpanded = expandedGroups.has(item.id);
+                    nodes.push({
+                        type: 'group',
+                        id: item.id,
+                        group: item.group,
+                        connectionsCount: countDeep(item.id),
+                        isExpanded,
+                        depth,
+                    });
+                    if (isExpanded) walk(item.id, depth + 1);
+                } else {
+                    nodes.push({ type: 'server', id: item.id, connection: item.conn, depth });
+                }
+            }
+        };
+
+        walk(null, 0);
         return nodes;
-    }, [ungrouped, grouped, expandedGroups]);
+    }, [groups, filteredConnections, expandedGroups, countDeep, orderIndex]);
 
     const renderItem = useCallback(
         (item: FlatItem, style: React.CSSProperties) => {
             if (item.type === 'group') {
-                const { group, isExpanded, connectionsCount } = item;
+                const { group, isExpanded, connectionsCount, depth } = item;
                 return (
-                    <div style={style} className="pr-2">
+                    <div style={{ ...style, paddingLeft: depth * 14 }} className="pr-2">
                         <div
-                            className={`w-full flex items-center gap-2 px-3 h-full rounded-xl text-text-muted hover:bg-accent/5 transition-all group/header cursor-pointer select-none ${dragOverGroupId === group.id ? 'bg-accent/15 border border-dashed border-accent/40' : ''}`}
+                            data-rowid={group.id}
+                            data-rowkind="group"
+                            className={`relative w-full flex items-center gap-2 px-3 h-full rounded-xl text-text-muted hover:bg-accent/5 transition-all group/header cursor-grab active:cursor-grabbing select-none ${dropInfo?.id === group.id && dropInfo.pos === 'inside' ? 'bg-accent/20 ring-1 ring-accent/60' : ''}`}
                             onClick={e => toggleGroup(group.id, e)}
                             onContextMenu={e => handleGroupContextMenu(e, group)}
-                            onDragOver={e => handleDragOver(e, group.id)}
-                            onDragLeave={() => setDragOverGroupId(null)}
-                            onDrop={e => handleDrop(e, group.id)}
+                            onPointerDown={e => startDrag(e, 'group', group.id)}
                         >
+                            {dropInfo?.id === group.id && dropInfo.pos === 'before' && (
+                                <span className="absolute -top-px left-2 right-2 h-0.5 bg-accent rounded-full" />
+                            )}
+                            {dropInfo?.id === group.id && dropInfo.pos === 'after' && (
+                                <span className="absolute -bottom-px left-2 right-2 h-0.5 bg-accent rounded-full" />
+                            )}
                             {isExpanded ? (
                                 <ChevronDown className="w-3.5 h-3.5" />
                             ) : (
@@ -360,21 +477,27 @@ export const ServerSidebar: React.FC = () => {
                 activeTabId === conn.id ||
                 tabs.some(t => t.connectionId === conn.id && t.id === activeTabId);
             const status = getTabStatus(conn.id);
-            const isChild = !!conn.group_id;
 
             return (
                 <div
-                    style={style}
-                    draggable
-                    onDragStart={e => handleDragStart(e, conn.id)}
-                    className={`pr-2 ${isChild ? 'ml-4 pl-2 border-l border-border/50' : ''}`}
+                    data-rowid={conn.id}
+                    data-rowkind="conn"
+                    style={{ ...style, paddingLeft: item.depth * 14 }}
+                    onPointerDown={e => startDrag(e, 'conn', conn.id)}
+                    className={`relative pr-2 ${item.depth > 0 ? 'pl-2 border-l border-border/40' : ''}`}
                 >
+                    {dropInfo?.id === conn.id && dropInfo.pos === 'before' && (
+                        <span className="absolute top-0 left-2 right-2 h-0.5 bg-accent rounded-full z-10" />
+                    )}
+                    {dropInfo?.id === conn.id && dropInfo.pos === 'after' && (
+                        <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-accent rounded-full z-10" />
+                    )}
                     <ConnectionItem
                         connection={conn}
                         profile={profileById.get(conn.credential_profile_id ?? '')}
                         status={status}
                         isActive={isActive}
-                        onOpen={() => openTab(conn)}
+                        onOpen={() => { if (!justDragged.current) openTab(conn); }}
                         onEdit={() => {
                             setEditingConnection(conn);
                             setShowConnectionDialog(true);
@@ -400,10 +523,8 @@ export const ServerSidebar: React.FC = () => {
             setEditingGroup,
             setShowGroupDialog,
             deleteGroup,
-            handleDragStart,
-            handleDragOver,
-            handleDrop,
-            dragOverGroupId,
+            startDrag,
+            dropInfo,
             handleToggleFavorite,
         ]
     );
@@ -513,18 +634,18 @@ export const ServerSidebar: React.FC = () => {
                 )}
             </div>
 
-            {/* 30-13: react-window virtual list — only DOM-renders rows in the viewport */}
-            <div ref={listContainerRef} className="flex-1 min-h-0 custom-scrollbar pl-2 pr-1" style={{ overflow: 'hidden' }}>
+            {/* Scrollable tree — drop in empty area = move to root */}
+            <div
+                className={`flex-1 min-h-0 overflow-y-auto custom-scrollbar pl-2 pr-1 ${dragOverGroupId === 'root' ? 'bg-accent/5 ring-1 ring-inset ring-accent/30' : ''}`}
+            >
                 {visibleNodes.length > 0 ? (
-                    <VirtualList
-                        rowComponent={({ index, style }) =>
-                            renderItem(visibleNodes[index], style)
-                        }
-                        rowCount={visibleNodes.length}
-                        rowHeight={36}
-                        rowProps={{}}
-                        style={{ height: listHeight, overflowY: 'auto' }}
-                    />
+                    <div className="py-1">
+                        {visibleNodes.map(node => (
+                            <React.Fragment key={node.id}>
+                                {renderItem(node, { height: 36 })}
+                            </React.Fragment>
+                        ))}
+                    </div>
                 ) : (
                     <div className="mt-12 px-6 flex flex-col items-center text-center gap-3">
                         <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center border border-white/5">

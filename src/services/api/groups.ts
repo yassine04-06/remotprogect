@@ -20,4 +20,7 @@ export const createGroup = (name: string, parentId?: string | null) =>
 
 export const updateGroup = (id: string, name: string) => invoke('update_group', { id, name });
 
+export const updateGroupParent = (id: string, parentId: string | null) =>
+    invoke('update_group_parent', { id, parentId });
+
 export const deleteGroup = (id: string) => invoke('delete_group', { id });

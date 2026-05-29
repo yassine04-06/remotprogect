@@ -598,6 +598,7 @@ pub fn run() {
             // Groups
             commands::groups::create_group,
             commands::groups::update_group,
+            commands::groups::update_group_parent,
             commands::groups::delete_group,
             commands::groups::get_groups,
             // Credential Profiles

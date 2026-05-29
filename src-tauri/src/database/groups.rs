@@ -41,6 +41,40 @@ pub fn update_group(conn: &Connection, id: &str, name: &str) -> Result<(), Strin
     Ok(())
 }
 
+/// Move a group under a new parent (or to root when parent_id is None).
+/// Guards against making a group its own ancestor (cycle).
+pub fn update_group_parent(
+    conn: &Connection,
+    id: &str,
+    parent_id: Option<&str>,
+) -> Result<(), String> {
+    if let Some(pid) = parent_id {
+        if pid == id {
+            return Err("A folder cannot be moved into itself".to_string());
+        }
+        // walk up from the new parent; if we reach `id`, this would create a cycle
+        let mut cur = Some(pid.to_string());
+        while let Some(c) = cur {
+            if c == id {
+                return Err("Cannot move a folder into one of its own subfolders".to_string());
+            }
+            cur = conn
+                .query_row(
+                    "SELECT parent_id FROM groups WHERE id = ?1",
+                    params![c],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .map_err(|e| format!("Cycle check failed: {}", e))?;
+        }
+    }
+    conn.execute(
+        "UPDATE groups SET parent_id = ?1 WHERE id = ?2",
+        params![parent_id, id],
+    )
+    .map_err(|e| format!("Failed to move group: {}", e))?;
+    Ok(())
+}
+
 pub fn delete_group(conn: &Connection, id: &str) -> Result<(), String> {
     conn.execute("DELETE FROM groups WHERE id = ?1", params![id])
         .map_err(|e| format!("Failed to delete group: {}", e))?;

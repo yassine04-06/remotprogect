@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTabStore, useConnectionStore, useUIStore } from '../store';
 import * as api from '../services/api';
-import { Zap, ChevronRight } from 'lucide-react';
+import { Zap, ChevronRight, Loader2 } from 'lucide-react';
 
 export function QuickConnectBar() {
     const [input, setInput] = useState('');
@@ -102,21 +102,25 @@ export function QuickConnectBar() {
 
     return (
         <div className="h-12 bg-surface/50 border-b border-border flex items-center px-4 gap-3">
-            <Zap className="w-4 h-4 text-yellow-500" />
-            <div className="flex-1 max-w-xl relative">
+            <div className="w-6 h-6 rounded-md bg-yellow-500/10 flex items-center justify-center shrink-0">
+                <Zap className="w-3.5 h-3.5 text-yellow-500" />
+            </div>
+            <div className="flex-1 max-w-xl relative group">
                 <input
                     type="text"
                     value={input}
                     onChange={e => setInput(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleConnect()}
                     placeholder="Quick Connect: [ssh://][user@]host[:port]"
-                    className="w-full h-8 bg-base border border-border rounded-md px-3 text-sm focus:outline-none focus:border-accent/50 placeholder:text-text-muted"
+                    className="w-full h-8 bg-base border border-border rounded-lg px-3 pr-9 text-sm transition-all focus:outline-none focus:border-accent/60 focus:ring-2 focus:ring-accent/20 focus:bg-base/80 placeholder:text-text-muted"
                 />
                 <button
                     onClick={handleConnect}
-                    className="absolute right-1 top-1 w-6 h-6 flex items-center justify-center text-text-muted hover:text-accent transition-colors"
+                    disabled={busy}
+                    aria-label="Connect"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-md text-text-muted hover:text-accent hover:bg-accent/10 transition-all disabled:opacity-40"
                 >
-                    <ChevronRight className="w-4 h-4" />
+                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
                 </button>
             </div>
             <div className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">

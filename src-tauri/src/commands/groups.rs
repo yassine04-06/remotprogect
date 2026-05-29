@@ -28,6 +28,19 @@ pub fn update_group(
 }
 
 #[tauri::command]
+pub fn update_group_parent(
+    state: tauri::State<AppState>,
+    id: String,
+    parent_id: Option<String>,
+) -> Result<(), crate::error::AppError> {
+    let conn = state
+        .db
+        .get()
+        .map_err(|e| crate::error::AppError::Internal(format!("DB pool: {}", e)))?;
+    Ok(database::update_group_parent(&conn, &id, parent_id.as_deref())?)
+}
+
+#[tauri::command]
 pub fn delete_group(
     state: tauri::State<AppState>,
     id: String,
