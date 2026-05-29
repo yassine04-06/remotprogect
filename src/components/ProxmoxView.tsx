@@ -82,12 +82,14 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
                 let res: ProxmoxResource[];
                 if (isTokenAuth) {
                     res = await api.proxmoxAuthToken(connection.id);
-                } else {
+                } else if (authData) {
                     res = await api.proxmoxGetResources(
                         connection.host,
                         connection.port,
-                        authData!.ticket
+                        authData.ticket
                     );
+                } else {
+                    return;
                 }
                 if (mounted) setResources(res);
             } catch {

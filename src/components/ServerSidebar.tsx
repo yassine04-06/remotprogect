@@ -89,15 +89,17 @@ export const ServerSidebar: React.FC = () => {
     );
     // Move dragKey adjacent to targetKey within the persisted mixed order.
     const reorderItems = (dragKey: string, targetKey: string, pos: 'before' | 'after', allKeys: string[]) => {
-        const base = [...itemOrder.filter(x => allKeys.includes(x)), ...allKeys.filter(x => !itemOrder.includes(x))];
-        const from = base.indexOf(dragKey);
-        if (from > -1) base.splice(from, 1);
-        let to = base.indexOf(targetKey);
-        if (to < 0) to = base.length;
+        const normalized = [
+            ...itemOrder.filter(x => allKeys.includes(x)),
+            ...allKeys.filter(x => !itemOrder.includes(x)),
+        ];
+        const without = normalized.filter(x => x !== dragKey);
+        let to = without.indexOf(targetKey);
+        if (to < 0) to = without.length;
         if (pos === 'after') to += 1;
-        base.splice(to, 0, dragKey);
-        setItemOrder(base);
-        localStorage.setItem('nexorc_item_order', JSON.stringify(base));
+        const next = [...without.slice(0, to), dragKey, ...without.slice(to)];
+        setItemOrder(next);
+        localStorage.setItem('nexorc_item_order', JSON.stringify(next));
     };
 
     useEffect(() => {
@@ -173,6 +175,7 @@ export const ServerSidebar: React.FC = () => {
     const startPt = useRef<{ x: number; y: number } | null>(null);
     const dragActive = useRef(false);
     const justDragged = useRef(false);
+    const dndAbort = useRef<AbortController | null>(null);
 
     const performMove = useCallback(async () => {
         const drag = dragRef.current;
@@ -229,13 +232,13 @@ export const ServerSidebar: React.FC = () => {
         const el = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest(
             '[data-rowid]'
         ) as HTMLElement | null;
-        if (!el) {
+        const id = el?.getAttribute('data-rowid');
+        if (!el || !id) {
             dropRef.current = { id: null, kind: 'root', pos: 'inside' };
             setDragOverGroupId('root');
             setDropInfo(null);
             return;
         }
-        const id = el.getAttribute('data-rowid')!;
         const kind = el.getAttribute('data-rowkind') as 'conn' | 'group';
         const r = el.getBoundingClientRect();
         const y = e.clientY - r.top;
@@ -253,8 +256,8 @@ export const ServerSidebar: React.FC = () => {
     }, []);
 
     const onPointerUp = useCallback(() => {
-        window.removeEventListener('pointermove', onPointerMove);
-        window.removeEventListener('pointerup', onPointerUp);
+        dndAbort.current?.abort(); // detaches both move + up listeners
+        dndAbort.current = null;
         const wasDragging = dragActive.current;
         dragActive.current = false;
         if (wasDragging) {
@@ -267,7 +270,7 @@ export const ServerSidebar: React.FC = () => {
         startPt.current = null;
         setDropInfo(null);
         setDragOverGroupId(null);
-    }, [onPointerMove, performMove]);
+    }, [performMove]);
 
     const startDrag = useCallback(
         (e: React.PointerEvent, kind: 'conn' | 'group', id: string) => {
@@ -275,8 +278,10 @@ export const ServerSidebar: React.FC = () => {
             dragRef.current = { kind, id };
             startPt.current = { x: e.clientX, y: e.clientY };
             dragActive.current = false;
-            window.addEventListener('pointermove', onPointerMove);
-            window.addEventListener('pointerup', onPointerUp);
+            const ac = new AbortController();
+            dndAbort.current = ac;
+            window.addEventListener('pointermove', onPointerMove, { signal: ac.signal });
+            window.addEventListener('pointerup', onPointerUp, { signal: ac.signal });
         },
         [onPointerMove, onPointerUp]
     );

@@ -379,6 +379,8 @@ export function TerminalView({ tab, isActive }: TerminalViewProps) {
                 t?.focus();
             }, 50);
         }
+        // tab.id is stable for this component instance — only re-fit on activation
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isActive]);
 
     // 90-5: live incremental search as user types

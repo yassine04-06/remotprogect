@@ -38,10 +38,12 @@ export default tseslint.config(
             '@typescript-eslint/no-empty-function': 'off',
 
             // react-hooks v7 new strict rules — disabled due to false positives
-            // (loading data in effects, resetting state on prop change, xterm refs)
+            // (loading data in effects, resetting state on prop change, xterm refs,
+            //  and ref mutations inside pointer-event callbacks)
             'react-hooks/set-state-in-effect': 'off',
             'react-hooks/purity': 'off',
             'react-hooks/refs': 'off',
+            'react-hooks/immutability': 'off',
         },
     },
 

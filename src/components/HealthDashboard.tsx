@@ -192,6 +192,7 @@ export const HealthDashboard: React.FC = () => {
     const [draggingId, setDraggingId] = useState<string | null>(null);
     // refs read inside the window pointer listeners (avoid stale closures)
     const edgeRef = useRef<{ id: string; edge: 'left' | 'right' } | null>(null);
+    const dndAbort = useRef<AbortController | null>(null);
     const connsRef = useRef(connections);
     connsRef.current = connections;
 
@@ -263,9 +264,8 @@ export const HealthDashboard: React.FC = () => {
         const el = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest(
             '[data-cardid]'
         ) as HTMLElement | null;
-        if (!el) { edgeRef.current = null; setDropEdge(null); return; }
-        const id = el.getAttribute('data-cardid')!;
-        if (id === dragRef.current) { edgeRef.current = null; setDropEdge(null); return; }
+        const id = el?.getAttribute('data-cardid');
+        if (!el || !id || id === dragRef.current) { edgeRef.current = null; setDropEdge(null); return; }
         const r = el.getBoundingClientRect();
         const next = { id, edge: (e.clientX < r.left + r.width / 2 ? 'left' : 'right') as 'left' | 'right' };
         edgeRef.current = next;
@@ -273,8 +273,8 @@ export const HealthDashboard: React.FC = () => {
     }, []);
 
     const onCardUp = useCallback(() => {
-        window.removeEventListener('pointermove', onCardMove);
-        window.removeEventListener('pointerup', onCardUp);
+        dndAbort.current?.abort(); // detaches both move + up listeners
+        dndAbort.current = null;
         const dragId = dragRef.current;
         const wasDragging = dragActive.current;
         const edge = edgeRef.current;
@@ -289,18 +289,17 @@ export const HealthDashboard: React.FC = () => {
             setTimeout(() => { justDragged.current = false; }, 0);
             const ids = connsRef.current.map(c => c.id);
             setDashOrder(prev => {
-                const base = [...prev.filter(x => ids.includes(x)), ...ids.filter(x => !prev.includes(x))];
-                const from = base.indexOf(dragId);
-                if (from > -1) base.splice(from, 1);
-                let to = base.indexOf(edge.id);
-                if (to < 0) to = base.length;
+                const normalized = [...prev.filter(x => ids.includes(x)), ...ids.filter(x => !prev.includes(x))];
+                const without = normalized.filter(x => x !== dragId);
+                let to = without.indexOf(edge.id);
+                if (to < 0) to = without.length;
                 if (edge.edge === 'right') to += 1;
-                base.splice(to, 0, dragId);
-                localStorage.setItem(DASH_ORDER_KEY, JSON.stringify(base));
-                return base;
+                const next = [...without.slice(0, to), dragId, ...without.slice(to)];
+                localStorage.setItem(DASH_ORDER_KEY, JSON.stringify(next));
+                return next;
             });
         }
-    }, [onCardMove]);
+    }, []);
 
     const startCardDrag = useCallback((e: React.PointerEvent, id: string) => {
         if (e.button !== 0) return;
@@ -308,8 +307,10 @@ export const HealthDashboard: React.FC = () => {
         dragRef.current = id;
         startPt.current = { x: e.clientX, y: e.clientY };
         dragActive.current = false;
-        window.addEventListener('pointermove', onCardMove);
-        window.addEventListener('pointerup', onCardUp);
+        const ac = new AbortController();
+        dndAbort.current = ac;
+        window.addEventListener('pointermove', onCardMove, { signal: ac.signal });
+        window.addEventListener('pointerup', onCardUp, { signal: ac.signal });
     }, [onCardMove, onCardUp]);
 
     const runPings = useCallback(async () => {
