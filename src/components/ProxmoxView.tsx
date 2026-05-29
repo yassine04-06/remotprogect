@@ -64,7 +64,6 @@ export const ProxmoxView: React.FC<Props> = ({ connection }) => {
         } finally {
             setIsLoading(false);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [connection]);
 
     useEffect(() => {

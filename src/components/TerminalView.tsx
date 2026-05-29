@@ -258,7 +258,7 @@ export function TerminalView({ tab, isActive }: TerminalViewProps) {
                 console.warn('[TerminalView] WebGL addon failed, falling back to canvas renderer', e);
             }
         } else {
-            console.info(
+            console.warn(
                 `[TerminalView] WebGL context cap (${WEBGL_CONTEXT_LIMIT}) reached — ` +
                 `tab ${tab.id} will use canvas renderer`
             );

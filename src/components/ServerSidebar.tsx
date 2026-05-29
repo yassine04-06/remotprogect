@@ -333,9 +333,12 @@ export const ServerSidebar: React.FC = () => {
     // Recursively count connections in a folder + all its subfolders.
     const countDeep = useCallback(
         (groupId: string): number => {
-            let n = connections.filter(c => c.group_id === groupId).length;
-            for (const child of groups.filter(g => g.parent_id === groupId)) n += countDeep(child.id);
-            return n;
+            const walk = (id: string): number => {
+                let n = connections.filter(c => c.group_id === id).length;
+                for (const child of groups.filter(g => g.parent_id === id)) n += walk(child.id);
+                return n;
+            };
+            return walk(groupId);
         },
         [connections, groups]
     );

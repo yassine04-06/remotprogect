@@ -198,9 +198,12 @@ export const HealthDashboard: React.FC = () => {
     // Deep count of connections in a folder + all subfolders.
     const countDeep = useCallback(
         (gid: string): number => {
-            let n = connections.filter(c => c.group_id === gid).length;
-            for (const child of groups.filter(g => g.parent_id === gid)) n += countDeep(child.id);
-            return n;
+            const walk = (id: string): number => {
+                let n = connections.filter(c => c.group_id === id).length;
+                for (const child of groups.filter(g => g.parent_id === id)) n += walk(child.id);
+                return n;
+            };
+            return walk(gid);
         },
         [connections, groups]
     );
@@ -297,7 +300,6 @@ export const HealthDashboard: React.FC = () => {
                 return base;
             });
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [onCardMove]);
 
     const startCardDrag = useCallback((e: React.PointerEvent, id: string) => {
