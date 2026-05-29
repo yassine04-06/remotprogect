@@ -594,6 +594,7 @@ pub fn run() {
             commands::connections::get_connections,
             commands::connections::get_connections_summary,
             commands::connections::check_for_update,
+            commands::connections::install_update,
             // Groups
             commands::groups::create_group,
             commands::groups::update_group,

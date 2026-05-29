@@ -21,6 +21,7 @@ export interface UpdateInfo {
 }
 
 export const checkForUpdate = () => invoke<UpdateInfo>('check_for_update');
+export const installUpdate = () => invoke<void>('install_update');
 
 // ── External Tools (whitelisted, NXS-002) ────────────────
 // Only the tool IDs hardcoded in the Rust backend are accepted:

@@ -115,3 +115,26 @@ pub async fn check_for_update(
         ))),
     }
 }
+
+/// Download and install the pending update, then restart the app.
+#[tauri::command]
+pub async fn install_update(
+    app: tauri::AppHandle,
+) -> Result<(), crate::error::AppError> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| {
+        crate::error::AppError::Internal(format!("Updater not configured: {}", e))
+    })?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| crate::error::AppError::Network(format!("Update check failed: {}", e)))?
+        .ok_or_else(|| crate::error::AppError::Internal("No update available".to_string()))?;
+
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| crate::error::AppError::Network(format!("Install failed: {}", e)))?;
+
+    app.restart();
+}

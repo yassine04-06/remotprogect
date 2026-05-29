@@ -12,6 +12,7 @@ import {
     RefreshCw,
     Layers,
     ShieldOff,
+    Loader2,
 } from 'lucide-react';
 import { useUIStore, useConnectionStore } from '../store';
 import * as api from '../services/api';
@@ -35,7 +36,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [activeSection, setActiveSection] = useState<'security' | 'data' | 'appearance' | 'about'>(
         'security'
     );
-    const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'latest' | 'error'>('idle');
+    const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'latest' | 'error' | 'installing'>('idle');
     const [updateInfo, setUpdateInfo] = useState<{ version?: string; notes?: string } | null>(null);
     // MED-A11: allow multiple instances setting
     const [allowMultiple, setAllowMultiple] = useState(false);
@@ -70,6 +71,15 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             } else {
                 setUpdateStatus('latest');
             }
+        } catch {
+            setUpdateStatus('error');
+        }
+    };
+
+    const handleInstallUpdate = async () => {
+        setUpdateStatus('installing');
+        try {
+            await api.installUpdate(); // downloads, installs, then app restarts automatically
         } catch {
             setUpdateStatus('error');
         }
@@ -613,7 +623,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 </p>
                                             )}
                                             {updateStatus === 'available' && updateInfo && (
-                                                <div className="space-y-1">
+                                                <div className="space-y-3">
                                                     <p className="text-xs font-bold text-accent">
                                                         Update available: v{updateInfo.version}
                                                     </p>
@@ -622,6 +632,19 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                             {updateInfo.notes}
                                                         </p>
                                                     )}
+                                                    <button
+                                                        onClick={handleInstallUpdate}
+                                                        className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-xl text-sm font-bold hover:bg-green-600 transition-colors"
+                                                    >
+                                                        <Download className="w-4 h-4" />
+                                                        Install Now &amp; Restart
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {updateStatus === 'installing' && (
+                                                <div className="flex items-center gap-2 text-accent text-xs">
+                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                    Downloading and installing… app will restart.
                                                 </div>
                                             )}
                                             {updateStatus === 'error' && (
