@@ -25,7 +25,9 @@ interface ConnectionStore {
     resetForLock: () => void;
 
     // API Actions
-    fetchConnections: () => Promise<void>;
+    // force=true bypasses the "already loaded" guard — use it after mutations
+    // (import, scan-to-add) to pull fresh data. Default (init) loads once.
+    fetchConnections: (force?: boolean) => Promise<void>;
     createConnection: (req: CreateConnectionRequest) => Promise<void>;
     updateConnection: (req: UpdateConnectionRequest) => Promise<void>;
     deleteConnection: (id: string) => Promise<void>;
@@ -58,8 +60,8 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
             editingGroup: null,
         }),
 
-    fetchConnections: async () => {
-        if (get().loaded) return;
+    fetchConnections: async (force = false) => {
+        if (get().loaded && !force) return;
         const [conns, grps] = await Promise.all([api.getConnections(), api.getGroups()]);
         set({ connections: conns, groups: grps, loaded: true });
     },

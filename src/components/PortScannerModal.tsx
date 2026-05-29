@@ -204,7 +204,7 @@ export function PortScannerModal({ onClose }: { onClose: () => void }) {
         }
 
         if (imported > 0) {
-            await refreshData();
+            await refreshData(true);
             addToast({
                 type: 'success',
                 title: 'Import Complete',

@@ -171,7 +171,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
         try {
             await api.vaultImportFile(path as string);
-            await fetchData();
+            await fetchData(true); // force — vault import replaced the entire DB
             addToast({
                 type: 'success',
                 title: 'Vault restored',
