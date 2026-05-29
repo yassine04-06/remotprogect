@@ -9,6 +9,12 @@
     "core:window:default",
     "core:webview:default",
     "core:webview:allow-create-webview-window",
-    "updater:default"
+    "updater:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-ask",
+    "dialog:allow-confirm"
   ]
 }
