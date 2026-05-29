@@ -180,7 +180,6 @@ struct TransferProgress {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-#[allow(clippy::manual_checked_ops)]
 fn emit_progress(app: &tauri::AppHandle, id: &str, transferred: u64, total: u64, done: bool) {
     let percent = if total > 0 {
         (transferred * 100 / total).min(100) as u8
