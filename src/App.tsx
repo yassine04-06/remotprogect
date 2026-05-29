@@ -121,10 +121,21 @@ function TabContent() {
     const setActiveTab = useTabStore(s => s.setActiveTab);
 
     // Compute which tabs stay mounted: active + split partner + top MRU_LIMIT.
+    //
+    // CRITICAL: a live (status 'connected'/'connecting') session must NEVER be
+    // unmounted by the MRU window. All disconnect logic lives in each view's
+    // unmount cleanup, so unmounting a live tab would kill its backend session
+    // (PTY/RDP/VNC) — contradicting the "session still running" promise and
+    // silently dropping the user's work. Only idle/disconnected/error tabs are
+    // eligible for pausing.
     const mountedSet = (() => {
         const set = new Set<string>();
         if (activeTabId) set.add(activeTabId);
         if (splitTabId) set.add(splitTabId);
+        // Keep every live session mounted.
+        for (const t of tabs) {
+            if (t.status === 'connected' || t.status === 'connecting') set.add(t.id);
+        }
         const ranked = [...tabs]
             .filter(t => !set.has(t.id))
             .sort((a, b) => (lastActiveAt[b.id] ?? 0) - (lastActiveAt[a.id] ?? 0));
