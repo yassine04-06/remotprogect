@@ -24,9 +24,17 @@ type BoxErr = Box<dyn Error>;
 // ── Data directory (same location as the desktop app) ────────────────────────
 
 fn data_dir() -> PathBuf {
+    // Mirror the desktop app's dev isolation: debug builds / NEXORC_DEV use the
+    // separate "nexorc-dev" vault so the CLI reads the same vault the dev app
+    // writes. Release builds use the real "nexorc" vault.
+    let subdir = if cfg!(debug_assertions) || std::env::var_os("NEXORC_DEV").is_some() {
+        "nexorc-dev"
+    } else {
+        "nexorc"
+    };
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("nexorc")
+        .join(subdir)
 }
 
 // ── Vault unlock ──────────────────────────────────────────────────────────────

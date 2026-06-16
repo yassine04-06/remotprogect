@@ -270,9 +270,18 @@ pub fn run() {
     };
 
     // ── Resolve data directory ─────────────────────────────────────────────
+    // Dev isolation: debug builds (and any build with NEXORC_DEV set) use a
+    // SEPARATE "nexorc-dev" vault so local development can never touch — or
+    // destroy — the user's real "nexorc" vault. Release builds always use
+    // "nexorc". The CLI mirrors this logic (see bin/nexorc_cli.rs).
+    let app_subdir = if cfg!(debug_assertions) || std::env::var_os("NEXORC_DEV").is_some() {
+        "nexorc-dev"
+    } else {
+        "nexorc"
+    };
     let data_dir = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("nexorc");
+        .join(app_subdir);
     if let Err(e) = std::fs::create_dir_all(&data_dir) {
         eprintln!(
             "FATAL: cannot create data dir {}: {}",
