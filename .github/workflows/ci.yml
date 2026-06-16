@@ -271,16 +271,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS universal binary (Intel + Apple Silicon)
+          # macOS (Apple Silicon native — macos-latest runners are arm64).
+          # NOTE: a universal (Intel+ARM) build and a Linux-ARM64 runner were
+          # tried but are finicky on hosted runners; native targets are the
+          # reliable baseline. Revisit universal/ARM once signing is set up.
           - platform: macos-latest
-            args: --target universal-apple-darwin
-            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
-          # Linux x86_64
-          - platform: ubuntu-latest
             args: ''
             rust_targets: ''
-          # Linux ARM64 (GitHub-hosted arm runner)
-          - platform: ubuntu-24.04-arm
+          # Linux x86_64
+          - platform: ubuntu-latest
             args: ''
             rust_targets: ''
           # Windows x86_64
