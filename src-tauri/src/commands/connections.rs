@@ -42,7 +42,7 @@ pub fn create_connection(
 pub fn update_connection(
     state: tauri::State<AppState>,
     mut request: UpdateConnectionRequest,
-) -> Result<(), crate::error::AppError> {
+) -> Result<database::ServerConnection, crate::error::AppError> {
     encrypt_connection_update_fields(&state, &mut request)?;
     let conn = state
         .db

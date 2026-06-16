@@ -1,70 +1,108 @@
-# NexoRC Remote Manager — Architecture
+# ARCHITECTURE.md — NexoRC
 
-## Overview
+**Aggiornato:** 2026-06-13 · Versione 1.0.4
 
-NexoRC is a Tauri v2 desktop application. The frontend is a React/TypeScript SPA rendered in a WebView; the backend is a Rust process that handles all privileged operations (cryptography, protocol connections, filesystem access).
+---
+
+## 1. Panoramica del sistema
+
+NexoRC è un connection manager desktop cross-platform (Windows/macOS/Linux) costruito su **Tauri 2**. Il frontend è **React 19 + Zustand** in un WebView; il backend è un processo **Rust** che gestisce tutte le operazioni privilegiate (crittografia, connessioni di protocollo, filesystem). Tutte le credenziali vivono in un vault locale cifrato **AES-256-GCM** con chiave derivata via **Argon2id**. Nessun servizio cloud.
+
+Protocolli: SSH, RDP, VNC, SFTP/FTP, Telnet, local shell, Proxmox, Docker.
 
 ```
-┌─────────────────────────────────────────────┐
-│                  WebView                     │
-│  React + Zustand + Framer Motion + xterm.js  │
-│  src/components/   src/store/   src/services/│
-└────────────────────┬────────────────────────┘
-                     │  tauri::invoke (IPC)
-┌────────────────────▼────────────────────────┐
-│                Rust Core                     │
-│  src-tauri/src/lib.rs  (command registry)    │
-│  ├── database.rs       (SQLite, migrations)  │
-│  ├── encryption.rs     (AES-256-GCM, PBKDF2) │
-│  ├── ssh.rs            (russh)               │
-│  ├── sftp_ftp.rs       (suppaftp + FTPS)     │
-│  ├── rdp.rs            (FreeRDP subprocess)  │
-│  ├── vnc_client.rs     (native RFB 3.8)      │
-│  ├── docker.rs         (Docker Engine API)   │
-│  ├── proxmox.rs        (Proxmox REST API)    │
-│  ├── network.rs        (port scanner)        │
-│  └── error.rs          (AppError enum)       │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                      Frontend (WebView)                       │
+│  React 19 · Zustand (UI/connection/credential/tab)            │
+│  components/{sidebar,vnc,rdp,ssh,modals,forms,docker}         │
+│  services/api/<dominio>.ts  ──invoke──►                       │
+└───────────────────────────────┬─────────────────────────────┘
+                  Tauri IPC (invoke ⇄ command, emit ⇄ event)
+┌───────────────────────────────┴─────────────────────────────┐
+│                       Backend (Rust)                          │
+│  lib.rs  (entry, ~120 #[tauri::command], AppState)            │
+│   ├── commands/   (vault, connections, credentials, ssh, …)   │
+│   ├── database/   (pool r2d2 · 8 moduli · migrations v1→v15)  │
+│   ├── protocolli  (ssh, rdp, vnc_client, sftp_ftp, docker,    │
+│   │               proxmox, telnet, local_shell)               │
+│   ├── encryption · locked_key (mlock) · known_hosts           │
+│   ├── network · tools · import · backup · totp                │
+│   └── log_writer (PII scrubbing) · error (AppError)           │
+└──────────────────────────────────────────────────────────────┘
+        SQLite (connections.db) · config.json · recordings/
 ```
 
-## Vault / Encryption
+CLI companion: bin **`nexorc`** (`src/bin/nexorc_cli.rs`) — legge lo stesso vault; `russh` per `exec`, system `ssh` per `connect`.
 
-All secrets (passwords, private keys, API tokens) are encrypted at rest using AES-256-GCM. The encryption key is derived from the user's master password via PBKDF2-HMAC-SHA256 (600,000 iterations). A verification token stored alongside the salt allows unlock validation without exposing the key.
+## 2. Vault / Crittografia
 
-The key lives in an `RwLock<Option<Vec<u8>>>` inside `AppState`. Commands that need to encrypt/decrypt call `state.encryption_key.read()` to obtain the key.
+- Segreti cifrati at-rest con **AES-256-GCM**. Chiave derivata via **Argon2id** (m=64MiB, t=3, p=4) dal master password + salt in `config.json`. Vault legacy PBKDF2 migrati silenziosamente all'unlock.
+- **Token di verifica** = cifratura di 32 byte random: l'auth-tag GCM è l'oracolo, nessun plaintext fisso (`encryption.rs:create_verification_token`).
+- La chiave vive in `AppState.encryption_key: RwLock<Option<MlockedKey>>`. `MlockedKey` usa `VirtualLock`/`mlock` (no swap su disco) + `Zeroize` on drop (`locked_key.rs`).
+- **Auto-lock**: timer idle (default 15 min, configurabile e persistito) azzera la chiave; ogni comando vault-touching chiama `touch_activity()`.
+- **Regola di concorrenza:** la chiave va copiata fuori dal `RwLockReadGuard` prima di ogni `.await` (il guard non è `Send`).
 
-Auto-lock: the backend has a 15-minute idle timer that wipes the in-memory key. Every vault-touching command calls `touch_activity()` to reset it.
+## 3. Database
 
-## Database
+SQLite via **rusqlite** + pool **r2d2** (16 connessioni). Schema versionato: `CURRENT_SCHEMA_VERSION` + slice `MIGRATIONS` (`database/migrations.rs`). Le migration sono **additive e idempotenti**, eseguite all'avvio in transazione. File: `<data_dir>/nexorc/connections.db`. Moduli: `connections, groups, credentials, ssh_keys, saved_commands, audit, import_export, migrations`.
 
-SQLite via `rusqlite`. The schema version is tracked in `CURRENT_SCHEMA_VERSION` (database.rs). Migrations run at startup in `run_migrations()` — each migration step is idempotent. The database file lives at `$APPDATA/nexorc/vault.db` on Windows.
+## 4. Stato frontend (Zustand)
 
-## Frontend State
-
-Three Zustand stores:
-
-| Store | Responsibility |
-|-------|---------------|
-| `useConnectionStore` | Connection list, groups, search, CRUD ops |
+| Store | Responsabilità |
+|---|---|
+| `useConnectionStore` | Lista connessioni, gruppi, ricerca, CRUD, `templateConnection` |
 | `useCredentialStore` | Credential profiles, SSH keys, saved commands |
-| `useUIStore` | Modal visibility, toasts, theme, fullscreen |
-| `useTabStore` | Active tabs, tab status, split-pane state |
+| `useUIStore` | Visibilità modali, toast, tema, fullscreen, 2FA modal |
+| `useTabStore` | Tab attivi, status, split-pane, MRU |
 
-## IPC Pattern
+## 5. Pattern IPC
 
-Frontend API calls go through `src/services/api.ts`, which wraps every `invoke` call in a try/catch to handle races during startup. Backend commands return `Result<T, AppError>`; `AppError` serializes to `{ code: string, message: string }` so the frontend's `parseBackendError` can produce user-friendly messages.
+Le chiamate passano per `src/services/api/<dominio>.ts` (1 modulo per dominio, re-export da `index.ts`), ognuna wrappa `invoke` in try/catch per le race di startup. I comandi ritornano `Result<T, AppError>`; `AppError` serializza in `{ code, message }` → `parseBackendError`/`errorMapper.ts` producono messaggi user-friendly. **I tipi TS sono generati dal backend** via `ts-rs` (`generate_types` bin) → `src/types/generated.ts` (non editare a mano).
 
-## Protocol Implementations
+## 6. Implementazioni protocollo
 
-| Protocol | Transport | Notes |
-|----------|-----------|-------|
-| SSH/SFTP | russh (pure Rust) | Jump host, agent forwarding, tunnels |
-| RDP      | FreeRDP subprocess | Embeds the FreeRDP window into the app frame |
-| VNC      | Native RFB 3.8 (Rust) | Canvas-based, X11 keysyms, base64 RGBA frames |
-| FTP/FTPS | suppaftp 8 | Explicit TLS via NativeTlsFtpStream |
-| Docker   | HTTP API (TCP or Unix socket) | Container lifecycle + exec via xterm.js |
-| Proxmox  | REST API | PVE ticket + API token auth |
+| Protocollo | Transport | Note |
+|---|---|---|
+| SSH | system `ssh` (desktop) / `russh` (CLI) | Jump host, tunnel, agent, key passphrase |
+| SFTP/FTP | ssh2 / suppaftp (FTPS esplicito) | File manager con resume |
+| RDP | C# ActiveX helper (Windows) / FreeRDP (Unix) | Helper embeddato + integrity SHA-256 |
+| VNC | RFB nativo Rust | Canvas, JPEG/CopyRect, bound-check framebuffer |
+| Telnet | TCP raw + IAC handler | Carry-over per sequenze IAC split |
+| Docker | HTTP API (TCP/Unix/TLS) | Lifecycle + exec via xterm |
+| Proxmox | REST API | PVE ticket + API token, TLS pinning (TOFU) |
+| Local shell | PTY (portable-pty) | PowerShell/zsh/bash |
 
-## Event Bus
+## 7. Event bus
 
-Real-time data (SSH output, VNC frames, Docker exec output) flows from Rust to the frontend via Tauri events (`app_handle.emit(event, payload)`). The frontend subscribes with `@tauri-apps/api/event` `listen()` and tears down listeners on component unmount.
+Dati real-time (output SSH/shell/docker/telnet, frame VNC, status) fluiscono da Rust al frontend via `app_handle.emit("<proto>:<kind>:{id}", payload)`. Il frontend ascolta con `listen()` e fa teardown all'unmount. Il **recorder** (`recording_sessions: DashMap`) è agganciato ai loop di output di SSH/local/docker (protocol-agnostic, formato asciicast).
+
+## 8. Flussi critici
+
+- **Unlock:** password → Argon2id → verifica auth-tag → `MlockedKey` in AppState → migrazione KDF/ciphertext se necessario.
+- **Connect:** `*_connect(connection_id)` → lookup DB → decrypt **server-side** → sessione in DashMap → streaming via eventi.
+- **Restore (staged):** `vault_restore` spacchetta in `.restore_staging/`; `apply_staged_restore()` applica all'avvio **prima** di aprire il DB (no file-lock).
+
+## 9. Decisioni architetturali
+
+| Decisione | Razionale |
+|---|---|
+| `panic = "unwind"` in release | Catturare panic nei thread reader → disconnect, non crash app |
+| Tipi TS generati da `ts-rs` | Single source of truth del contratto IPC |
+| Credenziali decifrate solo server-side | Il plaintext non vive nell'heap V8 |
+| `MlockedKey` | Master key non swappabile + zeroizzata |
+| Restore staged all'avvio | Evita corruzione DB aperto su Windows |
+| TOTP server-side | Secret cifrato non lascia il backend |
+| DashMap per sessioni | Concorrenza senza lock globale |
+| Telemetry consent-gated | Privacy by default |
+
+## 10. Punti critici (maneggiare con cura)
+
+- **`AppState`**: god-struct toccata da quasi ogni comando.
+- **Migration**: solo additive; aggiornare `CURRENT_SCHEMA_VERSION` + `MIGRATIONS` + assert nei test.
+- **Tipi generati**: dopo modifica di un modello esposto, rigenerare e allineare i chiamanti.
+- **CLI `nexorc`**: dipende dallo schema di `config.json`/DB.
+- **Mixed sync/async**: SSH thread, Docker/Telnet tokio, VNC sync.
+
+## 11. Build & toolchain
+
+`npm run tauri dev` · `cargo build --release` · `npm run build` · `npm run generate-types` (~2 min). CI `ci.yml`: rust/frontend/build/release(matrix multi-OS + ARM)/SBOM; E2E Playwright on-demand.

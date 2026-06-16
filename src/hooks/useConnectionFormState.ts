@@ -19,13 +19,14 @@ export interface CommonFields {
     name: string;
     host: string;
     port: number;
-    protocol: 'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER';
+    protocol: 'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER' | 'TELNET';
     username: string;
     group_id: string | null;
     credential_profile_id: string | null;
     override_credentials: boolean;
     tags: string | null;
     notes: string | null;
+    mac_address: string | null;
 }
 
 // ── SSH-specific fields ──────────────────────────────────────────────────────
@@ -88,6 +89,7 @@ const DEFAULT_COMMON: CommonFields = {
     override_credentials: false,
     tags: null,
     notes: null,
+    mac_address: null,
 };
 
 const DEFAULT_SSH: SshFields = {
@@ -173,6 +175,7 @@ function fromConnection(c: ServerConnection): {
             override_credentials: c.override_credentials,
             tags: c.tags ?? null,
             notes: c.notes ?? null,
+            mac_address: c.mac_address ?? null,
         },
         ssh: {
             use_private_key: c.use_private_key,

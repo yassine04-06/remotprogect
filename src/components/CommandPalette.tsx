@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Search, TerminalSquare, Command, Hash, Server } from 'lucide-react';
 import { useUIStore, useCredentialStore, useConnectionStore, useTabStore } from '../store';
 import type { ServerConnection, SavedCommand } from '../types';
+import { expandDynamicVars } from '../utils/dynamicVars';
 
 // ── LOW-A6: Fuzzy matching ────────────────────────────────────────────────────
 //
@@ -159,7 +160,16 @@ export const CommandPalette: React.FC = () => {
     };
 
     const handleInject = (command: string) => {
-        window.dispatchEvent(new CustomEvent('inject-command', { detail: command }));
+        // Auto-expand single-brace dynamic vars ({date} {host} {user} …) using
+        // the active tab's connection context before injecting into the shell.
+        const { tabs, activeTabId } = useTabStore.getState();
+        const conn = tabs.find(t => t.id === activeTabId)?.connection;
+        const expanded = expandDynamicVars(command, {
+            host: conn?.host,
+            port: conn?.port,
+            username: conn?.username,
+        });
+        window.dispatchEvent(new CustomEvent('inject-command', { detail: expanded }));
         setShowCommandPalette(false);
         setPendingCommand(null);
     };

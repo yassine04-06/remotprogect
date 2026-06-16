@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import type { Tab } from '../types';
-import { TerminalView } from './TerminalView';
+import { TerminalView } from './ssh/TerminalView';
 
 interface Props {
     primaryTab: Tab;

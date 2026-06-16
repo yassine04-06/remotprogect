@@ -8,7 +8,7 @@ use crate::state::AppState;
 
 // ── Shared types ─────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct ImportedConnection {
     pub name: String,
     pub host: String,
@@ -1131,7 +1131,7 @@ pub async fn bulk_import_connections(
                 None
             } else {
                 let key_guard = state.encryption_key.read().map_err(|_| "Lock poisoned")?;
-                let key = key_guard.as_ref().ok_or("Vault is locked")?;
+                let key = key_guard.as_ref().ok_or("Vault is locked")?.expose();
                 Some(
                     crate::encryption::encrypt_v2(pt, key)
                         .map_err(|e| format!("Encryption error: {}", e))?,
@@ -1178,6 +1178,7 @@ pub async fn bulk_import_connections(
             docker_tls_key_path: None,
             proxmox_api_token_id: None,
             proxmox_api_token_secret_encrypted: None,
+            mac_address: None,
         };
 
         crate::database::connections::create_connection(&db, request)

@@ -1,19 +1,12 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import * as Sentry from '@sentry/react';
 import App from './App';
 import './index.css';
+import { initSentryIfConsented } from './telemetry';
 
-// 30-21: Sentry opt-in — active only when VITE_SENTRY_DSN is set at build time.
-const sentryDsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
-if (sentryDsn) {
-    Sentry.init({
-        dsn: sentryDsn,
-        environment: import.meta.env.MODE,
-        integrations: [Sentry.browserTracingIntegration()],
-        tracesSampleRate: 0.1,
-    });
-}
+// Telemetry is gated on explicit user consent (see telemetry.ts). This is a
+// no-op until the user opts in via the consent prompt.
+initSentryIfConsented();
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <React.StrictMode>

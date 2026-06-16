@@ -17,7 +17,7 @@ pub struct ConnectionSummary {
     pub name: String,
     pub host: String,
     pub port: i32,
-    #[ts(type = "'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER'")]
+    #[ts(type = "'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER' | 'TELNET'")]
     pub protocol: String,
     pub group_id: Option<String>,
     pub credential_profile_id: Option<String>,
@@ -109,6 +109,7 @@ pub fn create_connection(
         docker_tls_key_path: req.docker_tls_key_path.clone(),
         proxmox_api_token_id: req.proxmox_api_token_id.clone(),
         proxmox_api_token_secret_encrypted: req.proxmox_api_token_secret_encrypted.clone(),
+        mac_address: req.mac_address.clone(),
         created_at: now.clone(),
         updated_at: now,
     };
@@ -123,8 +124,8 @@ pub fn create_connection(
          use_ftps, rdp_nla, docker_transport, docker_socket_path,
          docker_tls_ca_path, docker_tls_cert_path, docker_tls_key_path,
          proxmox_api_token_id, proxmox_api_token_secret_encrypted,
-         created_at, updated_at)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37)",
+         created_at, updated_at, mac_address)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38)",
         params![
             res.id, res.name, res.host, res.port, res.protocol, res.username,
             res.password_encrypted, res.private_key_encrypted, res.group_id,
@@ -140,7 +141,7 @@ pub fn create_connection(
             res.docker_socket_path,
             res.docker_tls_ca_path, res.docker_tls_cert_path, res.docker_tls_key_path,
             res.proxmox_api_token_id, res.proxmox_api_token_secret_encrypted,
-            res.created_at, res.updated_at,
+            res.created_at, res.updated_at, res.mac_address,
         ],
     )
     .map_err(|e| format!("Failed to create connection: {}", e))?;
@@ -148,7 +149,7 @@ pub fn create_connection(
     Ok(res)
 }
 
-pub fn update_connection(conn: &Connection, req: UpdateConnectionRequest) -> Result<(), String> {
+pub fn update_connection(conn: &Connection, req: UpdateConnectionRequest) -> Result<ServerConnection, String> {
     let now = Utc::now().to_rfc3339();
     let tunnels_json = req
         .ssh_tunnels
@@ -164,7 +165,7 @@ pub fn update_connection(conn: &Connection, req: UpdateConnectionRequest) -> Res
          use_ftps=?26, rdp_nla=?27, docker_transport=?28, docker_socket_path=?29,
          docker_tls_ca_path=?30, docker_tls_cert_path=?31, docker_tls_key_path=?32,
          proxmox_api_token_id=?33, proxmox_api_token_secret_encrypted=?34,
-         updated_at=?35 WHERE id=?36",
+         mac_address=?35, updated_at=?36 WHERE id=?37",
         params![
             req.name,
             req.host,
@@ -200,13 +201,15 @@ pub fn update_connection(conn: &Connection, req: UpdateConnectionRequest) -> Res
             req.docker_tls_key_path,
             req.proxmox_api_token_id,
             req.proxmox_api_token_secret_encrypted,
+            req.mac_address,
             now,
             req.id,
         ],
     )
     .map_err(|e| format!("Failed to update connection: {}", e))?;
 
-    Ok(())
+    get_connection_by_id(conn, &req.id)?
+        .ok_or_else(|| format!("Connection {} not found after update", req.id))
 }
 
 pub fn delete_connection(conn: &Connection, id: &str) -> Result<(), String> {
@@ -227,7 +230,7 @@ pub fn get_connections(conn: &Connection) -> Result<Vec<ServerConnection>, Strin
              use_ftps, rdp_nla, docker_transport, docker_socket_path,
              docker_tls_ca_path, docker_tls_cert_path, docker_tls_key_path,
              proxmox_api_token_id, proxmox_api_token_secret_encrypted,
-             created_at, updated_at
+             created_at, updated_at, mac_address
              FROM connections ORDER BY name",
         )
         .map_err(|e| format!("Failed to prepare query: {}", e))?;
@@ -278,6 +281,7 @@ pub fn get_connections(conn: &Connection) -> Result<Vec<ServerConnection>, Strin
                 proxmox_api_token_secret_encrypted: row.get(36)?,
                 created_at: row.get(37)?,
                 updated_at: row.get(38)?,
+                mac_address: row.get(39)?,
             })
         })
         .map_err(|e| format!("Failed to query connections: {}", e))?
@@ -304,7 +308,7 @@ pub fn get_connection_by_id(
              use_ftps, rdp_nla, docker_transport, docker_socket_path,
              docker_tls_ca_path, docker_tls_cert_path, docker_tls_key_path,
              proxmox_api_token_id, proxmox_api_token_secret_encrypted,
-             created_at, updated_at
+             created_at, updated_at, mac_address
              FROM connections WHERE id = ?1",
         )
         .map_err(|e| format!("Failed to prepare query: {}", e))?;
@@ -354,6 +358,7 @@ pub fn get_connection_by_id(
             proxmox_api_token_secret_encrypted: row.get(36)?,
             created_at: row.get(37)?,
             updated_at: row.get(38)?,
+            mac_address: row.get(39)?,
         })
     });
 

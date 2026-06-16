@@ -268,6 +268,7 @@ pub async fn proxmox_auth(
         *key_guard
             .as_ref()
             .ok_or_else(|| AppError::AuthFailed("Vault locked".to_string()))?
+            .expose()
     };
     let creds = resolve_credentials_internal(&conn, &master_key, &connection_id)?;
     drop(conn);
@@ -430,6 +431,7 @@ pub async fn proxmox_auth_token(
         *key_guard
             .as_ref()
             .ok_or_else(|| AppError::AuthFailed("Vault locked".to_string()))?
+            .expose()
     };
     let token_secret = crate::encryption::decrypt_auto(&token_secret_enc, &master_key)
         .map_err(|e| AppError::AuthFailed(format!("Decrypt API token: {}", e)))?;
@@ -576,6 +578,7 @@ pub async fn proxmox_vm_action_token(
         *key_guard
             .as_ref()
             .ok_or_else(|| AppError::AuthFailed("Vault locked".to_string()))?
+            .expose()
     };
     let token_secret = crate::encryption::decrypt_auto(&token_secret_enc, &master_key)
         .map_err(|e| AppError::AuthFailed(format!("Decrypt API token: {}", e)))?;

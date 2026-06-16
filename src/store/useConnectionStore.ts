@@ -13,6 +13,8 @@ interface ConnectionStore {
     groups: Group[];
     searchQuery: string;
     editingConnection: ServerConnection | null;
+    // M3: when set, the form opens in CREATE mode pre-filled from this template.
+    templateConnection: ServerConnection | null;
     editingGroup: Group | null;
     loaded: boolean;
 
@@ -21,6 +23,7 @@ interface ConnectionStore {
     setGroups: (groups: Group[]) => void;
     setSearchQuery: (q: string) => void;
     setEditingConnection: (connection: ServerConnection | null) => void;
+    setTemplateConnection: (connection: ServerConnection | null) => void;
     setEditingGroup: (group: Group | null) => void;
     resetForLock: () => void;
 
@@ -41,6 +44,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     groups: [],
     searchQuery: '',
     editingConnection: null,
+    templateConnection: null,
     editingGroup: null,
     loaded: false,
 
@@ -48,6 +52,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     setGroups: groups => set({ groups }),
     setSearchQuery: searchQuery => set({ searchQuery }),
     setEditingConnection: editingConnection => set({ editingConnection }),
+    setTemplateConnection: templateConnection => set({ templateConnection }),
     setEditingGroup: editingGroup => set({ editingGroup }),
 
     // Called when the vault is locked — resets state so re-unlock refetches fresh data
@@ -67,39 +72,39 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     },
 
     createConnection: async req => {
-        await api.createConnection(req);
-        const conns = await api.getConnections();
-        set({ connections: conns });
+        const newConn = await api.createConnection(req);
+        set({ connections: [...get().connections, newConn] });
     },
 
     updateConnection: async req => {
-        await api.updateConnection(req);
-        const conns = await api.getConnections();
-        set({ connections: conns, editingConnection: null });
+        const updated = await api.updateConnection(req);
+        set({
+            connections: get().connections.map(c => c.id === updated.id ? updated : c),
+            editingConnection: null,
+        });
     },
 
     deleteConnection: async id => {
         await api.deleteConnection(id);
-        const conns = await api.getConnections();
-        set({ connections: conns });
+        set({ connections: get().connections.filter(c => c.id !== id) });
         eventBus.emit('connection_deleted', id);
     },
 
     createGroup: async (name, parentId) => {
-        await api.createGroup(name, parentId);
-        const grps = await api.getGroups();
-        set({ groups: grps });
+        const newGroup = await api.createGroup(name, parentId);
+        set({ groups: [...get().groups, newGroup] });
     },
 
     updateGroup: async (id, name) => {
         await api.updateGroup(id, name);
-        const grps = await api.getGroups();
-        set({ groups: grps, editingGroup: null });
+        set({
+            groups: get().groups.map(g => g.id === id ? { ...g, name } : g),
+            editingGroup: null,
+        });
     },
 
     deleteGroup: async id => {
         await api.deleteGroup(id);
-        const grps = await api.getGroups();
-        set({ groups: grps });
+        set({ groups: get().groups.filter(g => g.id !== id) });
     },
 }));

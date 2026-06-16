@@ -9,30 +9,35 @@ import {
 import * as api from './services/api';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { UnlockScreen } from './components/UnlockScreen';
-import { ServerSidebar } from './components/ServerSidebar';
+import { ServerSidebar } from './components/sidebar/ServerSidebar';
 import { SplitPaneView } from './components/SplitPaneView';
 import { QuickConnectBar } from './components/QuickConnectBar';
 import { BroadcastBar } from './components/BroadcastBar';
 import { AppTopbar } from './components/AppTopbar';
-import { AppModals } from './components/AppModals';
+import { AppModals } from './components/modals/AppModals';
 import { Toaster } from './components/Toaster';
 import { motion, AnimatePresence } from 'framer-motion';
 import { eventBus } from './store/events';
+import { TelemetryConsent } from './components/TelemetryConsent';
+import { PromptDialog } from './components/PromptDialog';
 
 // MED-A13: protocol views are heavy (xterm.js, canvas, RDP embed) — lazy-load
 // them so the initial JS bundle is smaller and the unlock/dashboard screen
 // renders faster.  Each view lands in its own async chunk.
 const TerminalView = lazy(() =>
-    import('./components/TerminalView').then(m => ({ default: m.TerminalView }))
+    import('./components/ssh/TerminalView').then(m => ({ default: m.TerminalView }))
 );
 const RdpView = lazy(() =>
-    import('./components/RdpView').then(m => ({ default: m.RdpView }))
+    import('./components/rdp/RdpView').then(m => ({ default: m.RdpView }))
 );
 const VncView = lazy(() =>
-    import('./components/VncView').then(m => ({ default: m.VncView }))
+    import('./components/vnc/VncView').then(m => ({ default: m.VncView }))
 );
 const LocalTerminalView = lazy(() =>
-    import('./components/LocalTerminalView').then(m => ({ default: m.LocalTerminalView }))
+    import('./components/ssh/LocalTerminalView').then(m => ({ default: m.LocalTerminalView }))
+);
+const TelnetView = lazy(() =>
+    import('./components/ssh/TelnetView').then(m => ({ default: m.TelnetView }))
 );
 const HealthDashboard = lazy(() =>
     import('./components/HealthDashboard').then(m => ({ default: m.HealthDashboard }))
@@ -44,7 +49,7 @@ const DockerView = lazy(() =>
     import('./components/DockerView').then(m => ({ default: m.DockerView }))
 );
 const FileManagerView = lazy(() =>
-    import('./components/FileManagerView').then(m => ({ default: m.FileManagerView }))
+    import('./components/ssh/FileManagerView').then(m => ({ default: m.FileManagerView }))
 );
 
 // ── Tab content router ────────────────────────────────────
@@ -200,6 +205,10 @@ function TabContent() {
                                     <Suspense fallback={<div className="w-full h-full bg-base" />}>
                                         <LocalTerminalView tab={tab} isActive={activeTabId === tab.id} />
                                     </Suspense>
+                                ) : tab.protocol === 'TELNET' ? (
+                                    <Suspense fallback={<div className="w-full h-full bg-base" />}>
+                                        <TelnetView tab={tab} isActive={activeTabId === tab.id} />
+                                    </Suspense>
                                 ) : tab.protocol === 'SFTP' || tab.protocol === 'FTP' ? (
                                     <Suspense fallback={<div className="w-full h-full bg-base" />}>
                                         <FileManagerView tab={tab} isActive={activeTabId === tab.id} />
@@ -242,6 +251,19 @@ function MainLayout() {
 
     const isFullscreen   = useUIStore(s => s.isFullscreen);
     const theme          = useUIStore(s => s.theme);
+
+    // 'auto' follows the OS prefers-color-scheme: dark → default palette,
+    // light → light palette. Reacts live to OS theme changes via matchMedia.
+    const [systemDark, setSystemDark] = useState(
+        () => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true
+    );
+    useEffect(() => {
+        const mq = window.matchMedia('(prefers-color-scheme: dark)');
+        const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+        mq.addEventListener('change', onChange);
+        return () => mq.removeEventListener('change', onChange);
+    }, []);
+    const effectiveTheme = theme === 'auto' ? (systemDark ? 'default' : 'light') : theme;
     const setVaultUnlocked = useUIStore(s => s.setVaultUnlocked);
     const addToast       = useUIStore(s => s.addToast);
 
@@ -349,7 +371,7 @@ function MainLayout() {
     };
 
     return (
-        <div className={`flex h-screen bg-base text-text-primary overflow-hidden font-sans theme-${theme}`}>
+        <div className={`flex h-screen bg-base text-text-primary overflow-hidden font-sans theme-${effectiveTheme}`}>
             {/* Sidebar */}
             <div className={isFullscreen ? 'hidden' : 'flex'}>
                 <ErrorBoundary panelName="Sidebar">
@@ -424,6 +446,8 @@ export default function App() {
                     </motion.div>
                 )}
             </AnimatePresence>
+            <TelemetryConsent />
+            <PromptDialog />
         </ErrorBoundary>
     );
 }

@@ -30,6 +30,8 @@
 //     differ between implementations.
 
 use base64::Engine as _;
+use image::codecs::jpeg::JpegEncoder;
+use image::ImageEncoder;
 use serde::Serialize;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -38,6 +40,11 @@ use std::sync::{
     Arc,
 };
 use tauri::Emitter;
+
+// Rects with more pixels than this threshold are JPEG-compressed.
+// 64×64 = 4096 px → raw RGBA ≈ 16 KiB, JPEG ≈ 1-3 KiB.
+const JPEG_THRESHOLD: u32 = 4096;
+const JPEG_QUALITY: u8 = 85;
 
 // HIGH-A8: maximum bytes we are willing to allocate for a single framebuffer
 // or rectangle. 64 MiB covers a 4096×4096 screen at 32 bpp with room to spare.
@@ -54,38 +61,65 @@ pub struct VncInitEvent {
     pub name: String,
 }
 
+/// One rectangle within a VNC frame. Serialised with an inline `rect_type`
+/// tag so the frontend can switch on a single field without an extra wrapper.
+///
+/// - `raw`      — small rect; pixel data is base64-encoded RGBA (4 B/px)
+/// - `jpeg`     — large rect (> JPEG_THRESHOLD px); pixel data is base64 JPEG
+/// - `copyrect` — L-4 blit hint; no pixel data, just source coordinates
 #[derive(Clone, Serialize)]
-pub struct VncRectEvent {
-    pub session_id: String,
-    pub x: u16,
-    pub y: u16,
-    pub width: u16,
-    pub height: u16,
-    /// Base64-encoded RGBA bytes (4 bytes per pixel)
-    pub data: String,
+#[serde(tag = "rect_type", rename_all = "lowercase")]
+pub enum VncRectItem {
+    Raw {
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        /// Base64-encoded RGBA bytes (4 bytes per pixel)
+        data: String,
+    },
+    Jpeg {
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        /// Base64-encoded JPEG bytes
+        data: String,
+    },
+    Copyrect {
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        src_x: u16,
+        src_y: u16,
+    },
 }
 
-/// L-4 partial: CopyRect (RFB encoding #1). The server tells us "the rectangle
-/// at (x, y, width, height) is identical to the rectangle currently at
-/// (src_x, src_y)" — typically used for window drags and scrolling. The
-/// frontend's canvas already holds those pixels, so it can blit them with
-/// `ctx.drawImage(canvas, src_x, src_y, w, h, x, y, w, h)` instead of the
-/// server having to re-transmit pixel data.
+/// All rectangles from one RFB FramebufferUpdate batched into a single Tauri
+/// event. Reduces IPC overhead from N events → 1 per frame and lets the
+/// frontend render them atomically (no partial-frame flicker).
 #[derive(Clone, Serialize)]
-pub struct VncCopyRectEvent {
+pub struct VncFrameEvent {
     pub session_id: String,
-    pub x: u16,
-    pub y: u16,
-    pub width: u16,
-    pub height: u16,
-    pub src_x: u16,
-    pub src_y: u16,
+    pub rects: Vec<VncRectItem>,
 }
 
 #[derive(Clone, Serialize)]
 pub struct VncStatusEvent {
     pub session_id: String,
     pub message: String,
+}
+
+/// Emitted when a VNC connection uses weak or absent encryption.
+/// The frontend should display a persistent warning banner.
+#[derive(Clone, Serialize)]
+pub struct VncSecurityWarningEvent {
+    pub session_id: String,
+    /// Human-readable description of the security issue.
+    pub message: String,
+    /// RFB security type used: 1 = None, 2 = VNC Auth (DES-56). None = pre-connect.
+    pub security_type: Option<u8>,
 }
 
 // ── DES authentication (VNC password) ────────────────────
@@ -145,7 +179,8 @@ fn rfb_handshake(stream: &mut TcpStream) -> Result<(), String> {
     Ok(())
 }
 
-fn rfb_security(stream: &mut TcpStream, password: &str) -> Result<(), String> {
+/// Returns the chosen RFB security type (1 = None, 2 = VNC Auth/DES).
+fn rfb_security(stream: &mut TcpStream, password: &str) -> Result<u8, String> {
     let mut n_buf = [0u8; 1];
     read_exact(stream, &mut n_buf)?;
     let n = n_buf[0] as usize;
@@ -203,7 +238,7 @@ fn rfb_security(stream: &mut TcpStream, password: &str) -> Result<(), String> {
         ));
     }
 
-    Ok(())
+    Ok(chosen)
 }
 
 fn rfb_client_init(stream: &mut TcpStream) -> Result<(u16, u16, String), String> {
@@ -306,6 +341,7 @@ fn run_vnc_session(
     host: &str,
     port: i32,
     password: &str,
+    has_tunnel: bool,
     cancel: &Arc<AtomicBool>,
 ) -> Result<(), String> {
     let addr = format!("{}:{}", host, port);
@@ -316,7 +352,32 @@ fn run_vnc_session(
         .ok();
 
     rfb_handshake(&mut stream)?;
-    rfb_security(&mut stream, password)?;
+    let sec_type = rfb_security(&mut stream, password)?;
+
+    // Warn on weak/absent encryption if not going through an SSH tunnel.
+    // Type 1 = no auth, type 2 = VNC Auth (DES-56, brute-forceable in hours).
+    // Both are cleartext on the wire — a tunnel is the only mitigation.
+    if !has_tunnel && (sec_type == 1 || sec_type == 2) {
+        let msg = if sec_type == 1 {
+            "VNC connection is UNENCRYPTED and has NO authentication. \
+             All traffic (including your desktop) is visible on the network. \
+             Configure an SSH tunnel to secure this connection."
+        } else {
+            "VNC connection is UNENCRYPTED. Authentication uses DES-56 \
+             which is brute-forceable in hours. \
+             Configure an SSH tunnel to secure this connection."
+        };
+        let _ = app.emit(
+            "vnc:security_warning",
+            VncSecurityWarningEvent {
+                session_id: session_id.to_string(),
+                message: msg.to_string(),
+                security_type: Some(sec_type),
+            },
+        );
+        tracing::warn!("VNC session {}: unencrypted, sec_type={}", session_id, sec_type);
+    }
+
     let (width, height, name) = rfb_client_init(&mut stream)?;
 
     let _ = app.emit(
@@ -356,10 +417,14 @@ fn run_vnc_session(
 
         match msg_type[0] {
             0 => {
-                // FramebufferUpdate
+                // FramebufferUpdate — collect all rects into a single batch event.
+                // This reduces IPC overhead from N events → 1 per frame and lets
+                // the frontend render atomically.
                 let mut hdr = [0u8; 3];
                 read_exact(&mut stream, &mut hdr)?;
                 let n_rects = u16::from_be_bytes([hdr[1], hdr[2]]) as usize;
+
+                let mut frame_rects: Vec<VncRectItem> = Vec::with_capacity(n_rects);
 
                 for _ in 0..n_rects {
                     if cancel.load(Ordering::Relaxed) {
@@ -382,11 +447,9 @@ fn run_vnc_session(
 
                     match encoding {
                         0 => {
-                            // Raw encoding: w * h * bytes_per_pixel bytes
-                            // HIGH-A8: guard per-rectangle allocation too — a
-                            // server can send a single rect that covers the entire
-                            // screen, so the initial framebuffer check is not
-                            // sufficient on its own.
+                            // Raw encoding: w * h * bytes_per_pixel bytes.
+                            // HIGH-A8: guard per-rectangle allocation — a server can
+                            // send a single rect covering the entire screen.
                             let n_bytes = (w as usize)
                                 .saturating_mul(h as usize)
                                 .saturating_mul(bytes_per_pixel);
@@ -404,38 +467,47 @@ fn run_vnc_session(
                                 chunk[3] = 255;
                             }
 
-                            let b64 = base64::engine::general_purpose::STANDARD.encode(&pixel_data);
-                            let _ = app.emit(
-                                "vnc:rect",
-                                VncRectEvent {
-                                    session_id: session_id.to_string(),
-                                    x,
-                                    y,
-                                    width: w,
-                                    height: h,
-                                    data: b64,
-                                },
-                            );
+                            let pixel_count = (w as u32).saturating_mul(h as u32);
+                            if pixel_count > JPEG_THRESHOLD {
+                                // Large rect — encode as JPEG to reduce IPC payload.
+                                // Convert RGBA → RGB (JPEG has no alpha channel).
+                                let rgb: Vec<u8> = pixel_data
+                                    .chunks_exact(4)
+                                    .flat_map(|c| [c[0], c[1], c[2]])
+                                    .collect();
+                                let mut jpeg_bytes = Vec::new();
+                                JpegEncoder::new_with_quality(&mut jpeg_bytes, JPEG_QUALITY)
+                                    .write_image(
+                                        &rgb,
+                                        w as u32,
+                                        h as u32,
+                                        image::ExtendedColorType::Rgb8,
+                                    )
+                                    .map_err(|e| format!("JPEG encode error: {}", e))?;
+                                let b64 = base64::engine::general_purpose::STANDARD
+                                    .encode(&jpeg_bytes);
+                                frame_rects.push(VncRectItem::Jpeg {
+                                    x, y, width: w, height: h, data: b64,
+                                });
+                            } else {
+                                // Small rect — raw RGBA is more efficient (no JPEG overhead).
+                                let b64 = base64::engine::general_purpose::STANDARD
+                                    .encode(&pixel_data);
+                                frame_rects.push(VncRectItem::Raw {
+                                    x, y, width: w, height: h, data: b64,
+                                });
+                            }
                         }
                         1 => {
-                            // L-4 partial: CopyRect — body is 4 bytes (src_x, src_y).
-                            // Tell the frontend to blit (src_x, src_y, w, h) → (x, y).
+                            // CopyRect — body is 4 bytes (src_x, src_y). No pixel
+                            // data needed: the frontend blits from its own canvas.
                             let mut buf = [0u8; 4];
                             read_exact(&mut stream, &mut buf)?;
                             let src_x = u16::from_be_bytes([buf[0], buf[1]]);
                             let src_y = u16::from_be_bytes([buf[2], buf[3]]);
-                            let _ = app.emit(
-                                "vnc:copyrect",
-                                VncCopyRectEvent {
-                                    session_id: session_id.to_string(),
-                                    x,
-                                    y,
-                                    width: w,
-                                    height: h,
-                                    src_x,
-                                    src_y,
-                                },
-                            );
+                            frame_rects.push(VncRectItem::Copyrect {
+                                x, y, width: w, height: h, src_x, src_y,
+                            });
                         }
                         _ => {
                             // Any encoding not advertised in SetEncodings shouldn't
@@ -447,6 +519,16 @@ fn run_vnc_session(
                             ));
                         }
                     }
+                }
+
+                if !frame_rects.is_empty() {
+                    let _ = app.emit(
+                        "vnc:frame",
+                        VncFrameEvent {
+                            session_id: session_id.to_string(),
+                            rects: frame_rects,
+                        },
+                    );
                 }
 
                 // Request the next incremental update
@@ -501,11 +583,32 @@ pub async fn vnc_native_connect(
     let host = connection.host.clone();
     let port = connection.port;
 
+    // A connection is considered tunnelled when it goes through a jump host or
+    // when it targets localhost/loopback (indicating a pre-established tunnel).
+    let has_tunnel = connection.jump_host_id.is_some()
+        || matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");
+
+    // Pre-connect warning: we don't yet know the RFB security type, but we can
+    // already alert the user that the transport will be unencrypted.
+    if !has_tunnel {
+        let _ = app.emit(
+            "vnc:security_warning",
+            VncSecurityWarningEvent {
+                session_id: session_id.clone(),
+                message: "VNC connection has no SSH tunnel — traffic will be sent in \
+                          cleartext. Add a jump host or use localhost port-forwarding \
+                          to protect credentials and session data."
+                    .to_string(),
+                security_type: None,
+            },
+        );
+    }
+
     let key_guard = state
         .encryption_key
         .read()
         .map_err(|e| format!("Lock: {}", e))?;
-    let master_key = key_guard.as_ref().ok_or("Vault locked")?;
+    let master_key = key_guard.as_ref().ok_or("Vault locked")?.expose();
     let creds = resolve_credentials_internal(&conn, master_key, &connection_id)
         .map_err(|e| format!("Resolve creds: {}", e))?;
     drop(key_guard);
@@ -530,7 +633,7 @@ pub async fn vnc_native_connect(
     let sid = session_id.clone();
 
     std::thread::spawn(move || {
-        let result = run_vnc_session(&app_clone, &sid, &host, port, &pw, &cancel);
+        let result = run_vnc_session(&app_clone, &sid, &host, port, &pw, has_tunnel, &cancel);
         if let Err(e) = result {
             let _ = app_clone.emit(
                 "vnc:error",

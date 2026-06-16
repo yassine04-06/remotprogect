@@ -59,10 +59,12 @@ pub struct CreateCredentialProfileRequest {
     pub description: Option<String>,
     pub username: Option<String>,
     /// Preferred: send plaintext here and let the server encrypt it.
+    #[ts(optional = nullable)]
     pub password_plaintext: Option<String>,
     /// Legacy: pre-encrypted ciphertext (still accepted for back-compat).
     pub password_encrypted: Option<String>,
     /// Preferred: send plaintext here and let the server encrypt it.
+    #[ts(optional = nullable)]
     pub private_key_plaintext: Option<String>,
     /// Legacy: pre-encrypted ciphertext (still accepted for back-compat).
     pub private_key_encrypted: Option<String>,
@@ -78,10 +80,12 @@ pub struct UpdateCredentialProfileRequest {
     pub description: Option<String>,
     pub username: Option<String>,
     /// Preferred: send plaintext here and let the server encrypt it.
+    #[ts(optional = nullable)]
     pub password_plaintext: Option<String>,
     /// Legacy: pre-encrypted ciphertext (still accepted for back-compat).
     pub password_encrypted: Option<String>,
     /// Preferred: send plaintext here and let the server encrypt it.
+    #[ts(optional = nullable)]
     pub private_key_plaintext: Option<String>,
     /// Legacy: pre-encrypted ciphertext (still accepted for back-compat).
     pub private_key_encrypted: Option<String>,
@@ -107,7 +111,7 @@ pub struct ServerConnection {
     pub name: String,
     pub host: String,
     pub port: i32,
-    #[ts(type = "'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER'")]
+    #[ts(type = "'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER' | 'TELNET'")]
     pub protocol: String,
     pub username: String,
     pub password_encrypted: Option<String>,
@@ -142,6 +146,7 @@ pub struct ServerConnection {
     pub docker_tls_key_path: Option<String>, // H-3 (v12) client key PEM path
     pub proxmox_api_token_id: Option<String>, // 90-15 (v11)
     pub proxmox_api_token_secret_encrypted: Option<String>, // 90-15 (v11)
+    pub mac_address: Option<String>,    // M2 (v14) Wake-on-LAN
     pub created_at: String,
     pub updated_at: String,
 }
@@ -159,14 +164,16 @@ pub struct CreateConnectionRequest {
     pub name: String,
     pub host: String,
     pub port: i32,
-    #[ts(type = "'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER'")]
+    #[ts(type = "'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER' | 'TELNET'")]
     pub protocol: String,
     pub username: String,
     /// Preferred: send plaintext here and let the server encrypt it.
+    #[ts(optional = nullable)]
     pub password_plaintext: Option<String>,
     /// Legacy: pre-encrypted ciphertext (still accepted for back-compat).
     pub password_encrypted: Option<String>,
     /// Preferred: send plaintext here and let the server encrypt it.
+    #[ts(optional = nullable)]
     pub private_key_plaintext: Option<String>,
     /// Legacy: pre-encrypted ciphertext (still accepted for back-compat).
     pub private_key_encrypted: Option<String>,
@@ -197,6 +204,7 @@ pub struct CreateConnectionRequest {
     pub docker_tls_key_path: Option<String>,
     pub proxmox_api_token_id: Option<String>,
     pub proxmox_api_token_secret_encrypted: Option<String>,
+    pub mac_address: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -205,14 +213,16 @@ pub struct UpdateConnectionRequest {
     pub name: String,
     pub host: String,
     pub port: i32,
-    #[ts(type = "'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER'")]
+    #[ts(type = "'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER' | 'TELNET'")]
     pub protocol: String,
     pub username: String,
     /// Preferred: send plaintext here and let the server encrypt it.
+    #[ts(optional = nullable)]
     pub password_plaintext: Option<String>,
     /// Legacy: pre-encrypted ciphertext (still accepted for back-compat).
     pub password_encrypted: Option<String>,
     /// Preferred: send plaintext here and let the server encrypt it.
+    #[ts(optional = nullable)]
     pub private_key_plaintext: Option<String>,
     /// Legacy: pre-encrypted ciphertext (still accepted for back-compat).
     pub private_key_encrypted: Option<String>,
@@ -243,6 +253,7 @@ pub struct UpdateConnectionRequest {
     pub docker_tls_key_path: Option<String>,
     pub proxmox_api_token_id: Option<String>,
     pub proxmox_api_token_secret_encrypted: Option<String>,
+    pub mac_address: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

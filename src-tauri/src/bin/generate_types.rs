@@ -6,12 +6,16 @@ use remote_manager_lib::commands::credentials::ResolvedCredentials;
 use remote_manager_lib::commands::recording::RecordingInfo;
 use remote_manager_lib::commands::vault::VaultStatus;
 use remote_manager_lib::database::{
-    AuditEntry, ConnectionSummary, CreateConnectionRequest, CreateCredentialProfileRequest,
-    CreateSavedCommandRequest, CreateSshKeyRequest, CredentialProfile, CredentialType, ExportData,
-    Group, SavedCommand, ServerConnection, SshKey, SshTunnel, UpdateConnectionRequest,
-    UpdateCredentialProfileRequest, UpdateSavedCommandRequest,
+    AuditEntry, AuditVerifyEntry, AuditVerifyResult, ConnectionSummary, CreateConnectionRequest,
+    CreateCredentialProfileRequest, CreateSavedCommandRequest, CreateSshKeyRequest,
+    CredentialProfile, CredentialType, ExportData, Group, SavedCommand, ServerConnection, SshKey,
+    SshTunnel, UpdateConnectionRequest, UpdateCredentialProfileRequest, UpdateSavedCommandRequest,
 };
+use remote_manager_lib::commands::ssh_keys::SshKeyCreateRequest;
 use remote_manager_lib::docker::DockerContainer;
+use remote_manager_lib::import::ImportedConnection;
+use remote_manager_lib::proxmox::ProxmoxPinnedCert;
+use remote_manager_lib::totp::TotpCode;
 use remote_manager_lib::network::NetworkScanResult;
 use remote_manager_lib::proxmox::{ProxmoxAuthResponse, ProxmoxResource};
 use remote_manager_lib::rdp::RdpAvailability;
@@ -93,6 +97,8 @@ fn main() {
     // ── Network / tools ────────────────────────────────────────────────────
     out.push_str(&export::<NetworkScanResult>(&cfg));
     out.push('\n');
+    out.push_str(&export::<TotpCode>(&cfg));
+    out.push('\n');
     out.push_str(&export::<ToolResult>(&cfg));
     out.push('\n');
 
@@ -113,11 +119,23 @@ fn main() {
     out.push('\n');
     out.push_str(&export::<CreateSshKeyRequest>(&cfg));
     out.push('\n');
+    out.push_str(&export::<SshKeyCreateRequest>(&cfg));
+    out.push('\n');
+    out.push_str(&export::<ProxmoxPinnedCert>(&cfg));
+    out.push('\n');
     out.push_str(&export::<RecordingInfo>(&cfg));
+    out.push('\n');
+
+    // ── Import ────────────────────────────────────────────────────────────
+    out.push_str(&export::<ImportedConnection>(&cfg));
     out.push('\n');
 
     // ── Audit log ─────────────────────────────────────────────────────────
     out.push_str(&export::<AuditEntry>(&cfg));
+    out.push('\n');
+    out.push_str(&export::<AuditVerifyEntry>(&cfg));
+    out.push('\n');
+    out.push_str(&export::<AuditVerifyResult>(&cfg));
     out.push('\n');
 
     // Write output file relative to the manifest directory (src-tauri/)

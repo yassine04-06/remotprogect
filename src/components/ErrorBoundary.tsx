@@ -1,5 +1,6 @@
 import React from 'react';
 import * as Sentry from '@sentry/react';
+import { getConsent } from '../telemetry';
 
 interface Props extends React.PropsWithChildren {
     /** When set, renders a compact inline panel rather than a full-screen overlay. */
@@ -9,22 +10,37 @@ interface Props extends React.PropsWithChildren {
 interface State {
     hasError: boolean;
     error: string;
+    lastError: Error | null;
+    componentStack: string;
+    reportSent: boolean;
 }
 
 export class ErrorBoundary extends React.Component<Props, State> {
     constructor(props: Props) {
         super(props);
-        this.state = { hasError: false, error: '' };
+        this.state = { hasError: false, error: '', lastError: null, componentStack: '', reportSent: false };
     }
 
-    static getDerivedStateFromError(error: Error): State {
-        return { hasError: true, error: error.message || String(error) };
+    static getDerivedStateFromError(error: Error): Partial<State> {
+        return { hasError: true, error: error.message || String(error), lastError: error };
     }
 
     componentDidCatch(error: Error, info: React.ErrorInfo) {
         console.error(`[ErrorBoundary${this.props.panelName ? ':' + this.props.panelName : ''}]`, error, info);
+        this.setState({ componentStack: info.componentStack ?? '' });
+        // Auto-capture only when telemetry is initialised (consent granted) — a
+        // no-op otherwise, so nothing leaves the machine without opt-in.
         Sentry.captureException(error, { extra: { componentStack: info.componentStack, panel: this.props.panelName } });
     }
+
+    sendReport = () => {
+        if (this.state.lastError) {
+            Sentry.captureException(this.state.lastError, {
+                extra: { componentStack: this.state.componentStack, panel: this.props.panelName, manual: true },
+            });
+        }
+        this.setState({ reportSent: true });
+    };
 
     render() {
         if (!this.state.hasError) return this.props.children;
@@ -65,7 +81,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
                         {this.state.error}
                     </div>
                     <button
-                        onClick={() => this.setState({ hasError: false, error: '' })}
+                        onClick={() => this.setState({ hasError: false, error: '', lastError: null, componentStack: '', reportSent: false })}
                         style={{
                             marginTop: 4,
                             padding: '6px 16px',
@@ -117,7 +133,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                     <button
-                        onClick={() => this.setState({ hasError: false, error: '' })}
+                        onClick={() => this.setState({ hasError: false, error: '', lastError: null, componentStack: '', reportSent: false })}
                         style={{
                             padding: '8px 20px',
                             borderRadius: 8,
@@ -147,6 +163,29 @@ export class ErrorBoundary extends React.Component<Props, State> {
                         Reload App
                     </button>
                 </div>
+                {getConsent() === 'granted' ? (
+                    <button
+                        onClick={this.sendReport}
+                        disabled={this.state.reportSent}
+                        style={{
+                            marginTop: 4,
+                            padding: '6px 16px',
+                            borderRadius: 8,
+                            cursor: this.state.reportSent ? 'default' : 'pointer',
+                            background: 'transparent',
+                            color: this.state.reportSent ? 'var(--color-text-muted)' : 'var(--color-accent)',
+                            border: '1px solid var(--color-border)',
+                            fontWeight: 600,
+                            fontSize: 12,
+                        }}
+                    >
+                        {this.state.reportSent ? '✓ Crash report sent' : 'Send crash report'}
+                    </button>
+                ) : (
+                    <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-text-muted)' }}>
+                        Enable telemetry in Settings to send crash reports.
+                    </div>
+                )}
             </div>
         );
     }

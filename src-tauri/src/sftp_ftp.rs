@@ -42,7 +42,8 @@ fn resolve_conn_internal(
         .map_err(|e| AppError::Internal(format!("Lock: {}", e)))?;
     let master_key = key_guard
         .as_ref()
-        .ok_or_else(|| AppError::AuthFailed("Vault locked".to_string()))?;
+        .ok_or_else(|| AppError::AuthFailed("Vault locked".to_string()))?
+        .expose();
 
     let creds = crate::commands::credentials::resolve_credentials_internal(
         &conn,

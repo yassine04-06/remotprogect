@@ -12,4 +12,7 @@ export * from './recordings';
 export * from './saved_commands';
 export * from './ssh_keys';
 export * from './network';
+export * from './telnet';
+export * from './backup';
+export * from './totp';
 export * from './misc';

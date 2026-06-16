@@ -1,6 +1,7 @@
 use crate::database;
 use crate::encryption;
 use crate::error::AppError;
+use crate::locked_key::MlockedKey;
 use crate::state::AppState;
 use crate::{current_unix_secs, lock_err, touch_activity};
 use serde::{Deserialize, Serialize};
@@ -166,35 +167,32 @@ pub fn set_master_password(
     use zeroize::Zeroize;
 
     let salt = encryption::generate_salt();
+    let kdf = encryption::KdfParams::default_argon2id();
     let secret_pwd = secrecy::SecretString::new(request.password);
-    let mut key = encryption::derive_key(
-        secret_pwd.expose_secret(),
-        &salt,
-        encryption::DEFAULT_KDF_ITERATIONS,
-    );
+    let mut key = encryption::derive_key_params(secret_pwd.expose_secret(), &salt, &kdf)
+        .map_err(crate::error::AppError::Internal)?;
     let token = encryption::create_verification_token(&key)?;
 
     let config = serde_json::json!({
         "salt": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, salt),
         "verification_token": token,
-        "kdf": {
-            "algorithm": "pbkdf2-hmac-sha256",
-            "iterations": encryption::DEFAULT_KDF_ITERATIONS,
-        }
+        "kdf": kdf.to_config_json(),
     });
     // HIGH-A7: write config atomically (temp file + rename) so a crash between
     // write and sync cannot leave a half-written config.json.
     write_config_atomic(&state.config_path, &config)?;
     restrict_config_perms(&state.config_path);
 
-    *state.encryption_key.write().map_err(lock_err)? = Some(key);
+    *state.encryption_key.write().map_err(lock_err)? = Some(MlockedKey::new(key));
     *state.salt.write().map_err(lock_err)? = Some(salt.to_vec());
     *state.verification_token.write().map_err(lock_err)? = Some(token);
-    *state.kdf_iterations.write().map_err(lock_err)? = encryption::DEFAULT_KDF_ITERATIONS;
+    *state.kdf_params.write().map_err(lock_err)? = kdf;
 
     tracing::info!(
-        "Master password set (first run, {} PBKDF2 iterations)",
-        encryption::DEFAULT_KDF_ITERATIONS
+        "Master password set (Argon2id m={} t={} p={})",
+        encryption::DEFAULT_ARGON2_M_COST,
+        encryption::DEFAULT_ARGON2_T_COST,
+        encryption::DEFAULT_ARGON2_P_COST,
     );
     touch_activity(&state);
 
@@ -242,9 +240,11 @@ pub fn change_master_password(
         let token_guard = state.verification_token.read().map_err(lock_err)?;
         token_guard.as_ref().ok_or("Vault not initialized")?.clone()
     };
-    let old_iters = *state.kdf_iterations.read().map_err(lock_err)?;
+    let old_kdf = state.kdf_params.read().map_err(lock_err)?.clone();
 
-    let mut old_key = encryption::derive_key(secret_old.expose_secret(), &salt, old_iters);
+    let mut old_key =
+        encryption::derive_key_params(secret_old.expose_secret(), &salt, &old_kdf)
+            .map_err(crate::error::AppError::Internal)?;
     if !encryption::verify_master_password(&token, &old_key) {
         old_key.zeroize();
         tracing::warn!("change_master_password rejected: old password incorrect");
@@ -254,11 +254,10 @@ pub fn change_master_password(
     }
 
     let new_salt = encryption::generate_salt();
-    let mut new_key = encryption::derive_key(
-        secret_new.expose_secret(),
-        &new_salt,
-        encryption::DEFAULT_KDF_ITERATIONS,
-    );
+    let new_kdf = encryption::KdfParams::default_argon2id();
+    let mut new_key =
+        encryption::derive_key_params(secret_new.expose_secret(), &new_salt, &new_kdf)
+            .map_err(|e| { old_key.zeroize(); crate::error::AppError::Internal(e) })?;
     let new_token = encryption::create_verification_token(&new_key)?;
 
     {
@@ -349,10 +348,7 @@ pub fn change_master_password(
     let config = serde_json::json!({
         "salt": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, new_salt),
         "verification_token": new_token,
-        "kdf": {
-            "algorithm": "pbkdf2-hmac-sha256",
-            "iterations": encryption::DEFAULT_KDF_ITERATIONS,
-        }
+        "kdf": new_kdf.to_config_json(),
     });
     // HIGH-A7: atomic config write — crash between DB COMMIT and config.json
     // update would leave the DB encrypted with new_key but the file pointing
@@ -370,14 +366,16 @@ pub fn change_master_password(
     })?;
     restrict_config_perms(&state.config_path);
 
-    *state.encryption_key.write().map_err(lock_err)? = Some(new_key);
+    *state.encryption_key.write().map_err(lock_err)? = Some(MlockedKey::new(new_key));
     *state.salt.write().map_err(lock_err)? = Some(new_salt.to_vec());
     *state.verification_token.write().map_err(lock_err)? = Some(new_token);
-    *state.kdf_iterations.write().map_err(lock_err)? = encryption::DEFAULT_KDF_ITERATIONS;
+    *state.kdf_params.write().map_err(lock_err)? = new_kdf;
 
     tracing::info!(
-        "Master password changed (re-keyed to {} PBKDF2 iterations)",
-        encryption::DEFAULT_KDF_ITERATIONS
+        "Master password changed (re-keyed to Argon2id m={} t={} p={})",
+        encryption::DEFAULT_ARGON2_M_COST,
+        encryption::DEFAULT_ARGON2_T_COST,
+        encryption::DEFAULT_ARGON2_P_COST,
     );
     touch_activity(&state);
 
@@ -385,6 +383,174 @@ pub fn change_master_password(
     new_key.zeroize();
 
     Ok(())
+}
+
+/// Silently re-keys a PBKDF2 vault to Argon2id in-place.
+///
+/// Called once after the first successful unlock of a legacy vault while
+/// `unlock_mutex` is held.  Acquires `rekey_lock` internally to serialize
+/// with any concurrent `change_master_password` call.
+///
+/// Returns `true` if the migration committed; on any failure it logs the
+/// error and returns `false` — the caller stores the original PBKDF2 key so
+/// the vault is still usable.
+fn migrate_kdf_to_argon2id(
+    state: &tauri::State<AppState>,
+    old_key: &[u8; 32],
+    password: &str,
+) -> bool {
+    use zeroize::Zeroize;
+
+    let _rekey_guard = match state.rekey_lock.lock() {
+        Ok(g) => g,
+        Err(_) => {
+            tracing::warn!("KDF migration: rekey_lock poisoned, skipping");
+            return false;
+        }
+    };
+
+    // Re-check under lock — a concurrent change_master_password may have
+    // already migrated while we were waiting.
+    {
+        let params = match state.kdf_params.read() {
+            Ok(g) => g.clone(),
+            Err(_) => return false,
+        };
+        if !params.needs_migration() {
+            return false;
+        }
+    }
+
+    let new_salt = encryption::generate_salt();
+    let new_kdf = encryption::KdfParams::default_argon2id();
+    let mut new_key = match encryption::derive_key_params(password, &new_salt, &new_kdf) {
+        Ok(k) => k,
+        Err(e) => {
+            tracing::warn!("KDF migration: Argon2id derivation failed: {e}");
+            return false;
+        }
+    };
+    let new_token = match encryption::create_verification_token(&new_key) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!("KDF migration: token creation failed: {e}");
+            new_key.zeroize();
+            return false;
+        }
+    };
+
+    let db = match state.db.get() {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!("KDF migration: DB pool error: {e}");
+            new_key.zeroize();
+            return false;
+        }
+    };
+
+    if let Err(e) = db.execute_batch("BEGIN IMMEDIATE") {
+        tracing::warn!("KDF migration: BEGIN IMMEDIATE failed: {e}");
+        new_key.zeroize();
+        return false;
+    }
+
+    let result: Result<(), String> = (|| {
+        let connections = database::get_connections(&db).map_err(|e| e.to_string())?;
+        for c in &connections {
+            let new_pwd = c.password_encrypted.as_ref()
+                .and_then(|ct| encryption::decrypt_auto(ct, old_key).ok())
+                .and_then(|pt| encryption::encrypt_v2(&pt, &new_key).ok());
+            let new_key_blob = c.private_key_encrypted.as_ref()
+                .and_then(|ct| encryption::decrypt_auto(ct, old_key).ok())
+                .and_then(|pt| encryption::encrypt_v2(&pt, &new_key).ok());
+            if new_pwd.is_some() || new_key_blob.is_some() {
+                db.execute(
+                    "UPDATE connections SET password_encrypted=?1, private_key_encrypted=?2 WHERE id=?3",
+                    rusqlite::params![new_pwd, new_key_blob, c.id],
+                ).map_err(|e| e.to_string())?;
+            }
+        }
+
+        let profiles = database::get_credential_profiles(&db).map_err(|e| e.to_string())?;
+        for p in &profiles {
+            let new_pwd = p.password_encrypted.as_ref()
+                .and_then(|ct| encryption::decrypt_auto(ct, old_key).ok())
+                .and_then(|pt| encryption::encrypt_v2(&pt, &new_key).ok());
+            let new_key_blob = p.private_key_encrypted.as_ref()
+                .and_then(|ct| encryption::decrypt_auto(ct, old_key).ok())
+                .and_then(|pt| encryption::encrypt_v2(&pt, &new_key).ok());
+            if new_pwd.is_some() || new_key_blob.is_some() {
+                db.execute(
+                    "UPDATE credential_profiles SET password_encrypted=?1, private_key_encrypted=?2 WHERE id=?3",
+                    rusqlite::params![new_pwd, new_key_blob, p.id],
+                ).map_err(|e| e.to_string())?;
+            }
+        }
+
+        let ssh_keys = database::ssh_key_list(&db).map_err(|e| e.to_string())?;
+        for k in &ssh_keys {
+            let new_priv = encryption::decrypt_auto(&k.private_key_encrypted, old_key)
+                .ok()
+                .and_then(|pt| encryption::encrypt_v2(&pt, &new_key).ok());
+            if let Some(ref enc) = new_priv {
+                db.execute(
+                    "UPDATE ssh_keys SET private_key_encrypted=?1 WHERE id=?2",
+                    rusqlite::params![enc, k.id],
+                ).map_err(|e| e.to_string())?;
+            }
+        }
+
+        Ok(())
+    })();
+
+    if let Err(e) = result {
+        tracing::warn!("KDF migration: re-encryption failed ({e}), rolling back");
+        let _ = db.execute_batch("ROLLBACK");
+        new_key.zeroize();
+        return false;
+    }
+    if let Err(e) = db.execute_batch("COMMIT") {
+        tracing::warn!("KDF migration: COMMIT failed: {e}");
+        let _ = db.execute_batch("ROLLBACK");
+        new_key.zeroize();
+        return false;
+    }
+
+    // Write new config — must succeed; if it fails the DB is already committed
+    // under new_key, which would leave the vault inconsistent.
+    let config_str = std::fs::read_to_string(&state.config_path).unwrap_or_default();
+    let mut config: serde_json::Value =
+        serde_json::from_str(&config_str).unwrap_or_else(|_| serde_json::json!({}));
+    config["salt"] = serde_json::json!(
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, new_salt)
+    );
+    config["verification_token"] = serde_json::json!(&new_token);
+    config["kdf"] = new_kdf.to_config_json();
+
+    if let Err(e) = write_config_atomic(&state.config_path, &config) {
+        tracing::error!(
+            "KDF migration: DB committed under Argon2id key but config.json write \
+             failed: {e}. The vault is now INCONSISTENT — manual recovery needed."
+        );
+        new_key.zeroize();
+        return false;
+    }
+    restrict_config_perms(&state.config_path);
+
+    // Commit AppState atomically enough for a single-threaded desktop app.
+    if let Ok(mut g) = state.encryption_key.write() { *g = Some(MlockedKey::new(new_key)); }
+    if let Ok(mut g) = state.salt.write() { *g = Some(new_salt.to_vec()); }
+    if let Ok(mut g) = state.verification_token.write() { *g = Some(new_token); }
+    if let Ok(mut g) = state.kdf_params.write() { *g = new_kdf; }
+
+    tracing::info!(
+        "KDF migrated PBKDF2 → Argon2id (m={} KiB, t={}, p={}) on unlock",
+        encryption::DEFAULT_ARGON2_M_COST,
+        encryption::DEFAULT_ARGON2_T_COST,
+        encryption::DEFAULT_ARGON2_P_COST,
+    );
+    // new_key was moved into MlockedKey::new above — Drop handles zeroize.
+    true
 }
 
 #[derive(Deserialize)]
@@ -417,7 +583,7 @@ pub fn unlock_vault(
     // Net result: vault IS unlocked in RAM, but the next lock+unlock (correct
     // password) is rejected until the 30 s timer expires.
     //
-    // Holding the mutex through PBKDF2 (~200 ms) is acceptable on a single-user
+    // Holding the mutex through KDF (~200-600 ms) is acceptable on a single-user
     // desktop application — concurrent unlock calls are essentially impossible
     // in normal usage.
     let _unlock_guard = state.unlock_mutex.lock().map_err(lock_err)?;
@@ -439,9 +605,10 @@ pub fn unlock_vault(
             .clone()
     };
 
-    let iterations = *state.kdf_iterations.read().map_err(lock_err)?;
+    let kdf = state.kdf_params.read().map_err(lock_err)?.clone();
     let secret_pwd = secrecy::SecretString::new(request.password);
-    let mut key = encryption::derive_key(secret_pwd.expose_secret(), &salt, iterations);
+    let mut key = encryption::derive_key_params(secret_pwd.expose_secret(), &salt, &kdf)
+        .map_err(|e| crate::error::AppError::Internal(format!("KDF failed: {e}")))?;
 
     let token = {
         let token_guard = state.verification_token.read().map_err(lock_err)?;
@@ -487,8 +654,67 @@ pub fn unlock_vault(
     state.unlock_lockout_until.store(0, Ordering::Relaxed);
     touch_activity(&state);
 
-    *state.encryption_key.write().map_err(lock_err)? = Some(key);
-    key.zeroize();
+    // v1→v2 ciphertext migration — silently re-encrypt legacy no-AAD blobs.
+    // Runs at most once: a `ciphertext_v2_migrated` flag in config.json is set
+    // after a successful pass so subsequent unlocks skip the full-table scan.
+    // Non-fatal: decrypt_auto still handles v1 if migration fails (e.g. DB busy).
+    let cfg_str = std::fs::read_to_string(&state.config_path).unwrap_or_default();
+    let mut cfg: serde_json::Value = serde_json::from_str(&cfg_str).unwrap_or_default();
+    let already_migrated = cfg.get("ciphertext_v2_migrated").and_then(|v| v.as_bool()).unwrap_or(false);
+    if !already_migrated {
+        if let Ok(db) = state.db.get() {
+            match database::migrate_legacy_ciphertexts_to_v2(&db, &key) {
+                Ok(n) => {
+                    if n > 0 {
+                        tracing::info!("vault: migrated {} v1 ciphertext(s) to v2", n);
+                    }
+                    // Mark done so we never rescan all tables on future unlocks.
+                    cfg["ciphertext_v2_migrated"] = serde_json::json!(true);
+                    if let Err(e) = write_config_atomic(&state.config_path, &cfg) {
+                        tracing::warn!("vault: could not persist migration flag: {}", e);
+                    }
+                }
+                Err(e) => tracing::warn!("vault: v1→v2 migration failed (non-fatal): {}", e),
+            }
+        }
+    }
+
+    // KDF migration (PBKDF2 → Argon2id) takes precedence over the legacy-token
+    // rotation below, because migration creates a fresh random-secret token anyway.
+    let migrated = if kdf.needs_migration() {
+        // Lock ordering: unlock_mutex (held) → rekey_lock (acquired here).
+        // change_master_password only acquires rekey_lock, never unlock_mutex,
+        // so there is no deadlock risk.
+        migrate_kdf_to_argon2id(&state, &key, secret_pwd.expose_secret())
+    } else {
+        // Rotate legacy fixed-plaintext token if still present on an already-Argon2id vault.
+        let is_legacy = encryption::is_legacy_verification_token(&token, &key);
+        if is_legacy {
+            if let Ok(new_token) = encryption::create_verification_token(&key) {
+                let config_str = std::fs::read_to_string(&state.config_path).unwrap_or_default();
+                let mut config: serde_json::Value =
+                    serde_json::from_str(&config_str).unwrap_or_else(|_| serde_json::json!({}));
+                config["verification_token"] = serde_json::json!(&new_token);
+                if write_config_atomic(&state.config_path, &config).is_ok() {
+                    restrict_config_perms(&state.config_path);
+                    if let Ok(mut tg) = state.verification_token.write() {
+                        *tg = Some(new_token);
+                    }
+                    tracing::info!("vault: legacy fixed-plaintext token rotated to random secret");
+                }
+            }
+        }
+        false
+    };
+
+    // If migration succeeded it already stored the new Argon2id key in AppState.
+    // Otherwise store the PBKDF2 key so the vault is usable even without migration.
+    if !migrated {
+        // key is moved into MlockedKey — Drop handles zeroize on vault lock.
+        *state.encryption_key.write().map_err(lock_err)? = Some(MlockedKey::new(key));
+    } else {
+        key.zeroize();
+    }
     {
         let db = state.db.get().map_err(|e| format!("DB pool: {}", e))?;
         let _ = database::audit_log_insert(&db, "unlock", "vault", "vault", "vault", "success", "");

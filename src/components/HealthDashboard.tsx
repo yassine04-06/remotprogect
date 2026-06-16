@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { useConnectionStore, useTabStore } from '../store';
+import { useConnectionStore, useTabStore, useUIStore } from '../store';
 import type { ServerConnection } from '../types';
 import * as api from '../services/api';
 import {
@@ -14,6 +14,8 @@ import {
     ChevronRight,
     Folder as FolderIcon,
     GripVertical,
+    Plus,
+    Download,
 } from 'lucide-react';
 
 interface PingHistory {
@@ -358,12 +360,26 @@ export const HealthDashboard: React.FC = () => {
                     </div>
                 </div>
                 <h2 className="text-2xl font-bold text-text-primary mb-3 tracking-tight">
-                    Health Dashboard
+                    Welcome to NexoRC
                 </h2>
-                <p className="text-[13px] opacity-60 max-w-[280px] text-center leading-relaxed">
-                    No connections found. Add servers from the sidebar to start monitoring their
-                    status and uptime.
+                <p className="text-[13px] opacity-60 max-w-[320px] text-center leading-relaxed mb-6">
+                    Your vault is ready. Add your first server to start connecting via
+                    SSH, RDP, VNC, SFTP and more — or import existing sessions.
                 </p>
+                <div className="flex gap-3">
+                    <button
+                        onClick={() => useUIStore.getState().setShowConnectionDialog(true)}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-accent text-white rounded-xl text-sm font-bold hover:bg-accent/90 shadow-lg"
+                    >
+                        <Plus className="w-4 h-4" /> Add first connection
+                    </button>
+                    <button
+                        onClick={() => useUIStore.getState().setShowImportDialog(true)}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-surface border border-border rounded-xl text-sm font-semibold text-text-muted hover:bg-white/5"
+                    >
+                        <Download className="w-4 h-4" /> Import
+                    </button>
+                </div>
             </motion.div>
         );
     }

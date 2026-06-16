@@ -1,11 +1,15 @@
 pub mod commands;
 pub mod database;
 pub mod docker;
-mod encryption;
+pub mod encryption;
 mod error;
 pub mod import;
 mod known_hosts;
 mod local_shell;
+pub mod telnet;
+pub mod backup;
+pub mod totp;
+mod locked_key;
 mod log_writer; // HIGH-A6: PII-scrubbing size+daily rotating log writer
 pub mod network;
 pub mod proxmox;
@@ -71,6 +75,7 @@ pub mod test_helpers {
             docker_tls_key_path: None,
             proxmox_api_token_id: None,
             proxmox_api_token_secret_encrypted: None,
+            mac_address: None,
         }
     }
 
@@ -127,7 +132,7 @@ pub(crate) fn encrypt_connection_create_fields(
     request: &mut CreateConnectionRequest,
 ) -> Result<(), crate::error::AppError> {
     let key_guard = state.encryption_key.read().map_err(lock_err)?;
-    let key = key_guard.as_ref().ok_or("Vault locked")?;
+    let key = key_guard.as_ref().ok_or("Vault locked")?.expose();
     if let Some(pt) = request.password_plaintext.take() {
         if !pt.is_empty() {
             request.password_encrypted = Some(encryption::encrypt_v2(&pt, key)?);
@@ -147,7 +152,7 @@ pub(crate) fn encrypt_connection_update_fields(
     request: &mut UpdateConnectionRequest,
 ) -> Result<(), crate::error::AppError> {
     let key_guard = state.encryption_key.read().map_err(lock_err)?;
-    let key = key_guard.as_ref().ok_or("Vault locked")?;
+    let key = key_guard.as_ref().ok_or("Vault locked")?.expose();
     if let Some(pt) = request.password_plaintext.take() {
         if !pt.is_empty() {
             request.password_encrypted = Some(encryption::encrypt_v2(&pt, key)?);
@@ -337,6 +342,13 @@ pub fn run() {
     tracing::info!("Data dir: {}", data_dir.display());
     tracing::info!("Log dir : {}", log_dir.display());
 
+    // MED-A10: apply a pending vault restore BEFORE opening the database, so we
+    // never overwrite connections.db while SQLite holds it open (which corrupts
+    // it on Windows). vault_restore stages files; we move them into place here.
+    if let Err(e) = backup::apply_staged_restore(&data_dir) {
+        tracing::error!("Staged restore failed: {}", e);
+    }
+
     let db_path = data_dir.join("connections.db");
     let config_path = data_dir.join("config.json");
 
@@ -354,7 +366,7 @@ pub fn run() {
     let (
         salt,
         verification_token,
-        kdf_iterations_loaded,
+        kdf_params_loaded,
         auto_lock_secs_loaded,
         allow_multiple_instances,
     ) = if config_path.exists() {
@@ -364,28 +376,19 @@ pub fn run() {
                 base64::Engine::decode(&base64::engine::general_purpose::STANDARD, s).ok()
             });
             let token = config["verification_token"].as_str().map(|s| s.to_string());
-            let iters = config["kdf"]["iterations"]
-                .as_u64()
-                .map(|n| n as u32)
-                .unwrap_or_else(|| {
-                    if salt.is_some() {
-                        100_000
-                    } else {
-                        encryption::DEFAULT_KDF_ITERATIONS
-                    }
-                });
+            let kdf = encryption::KdfParams::from_config(&config["kdf"], salt.is_some());
             // MED-A1: restore persisted auto-lock timeout (default 15 min = 900 s)
             let auto_lock = config["auto_lock_secs"].as_u64().unwrap_or(900);
             // MED-A11: allow user to opt out of single-instance enforcement
             let multi = config["allow_multiple_instances"]
                 .as_bool()
                 .unwrap_or(false);
-            (salt, token, iters, auto_lock, multi)
+            (salt, token, kdf, auto_lock, multi)
         } else {
             (
                 None,
                 None,
-                encryption::DEFAULT_KDF_ITERATIONS,
+                encryption::KdfParams::default_argon2id(),
                 900u64,
                 false,
             )
@@ -394,16 +397,20 @@ pub fn run() {
         (
             None,
             None,
-            encryption::DEFAULT_KDF_ITERATIONS,
+            encryption::KdfParams::default_argon2id(),
             900u64,
             false,
         )
     };
 
-    tracing::info!(
-        "KDF: PBKDF2-HMAC-SHA256 × {} iterations",
-        kdf_iterations_loaded
-    );
+    match &kdf_params_loaded {
+        encryption::KdfParams::Pbkdf2 { iterations } => tracing::info!(
+            "KDF: PBKDF2-HMAC-SHA256 × {iterations} iterations (will migrate to Argon2id on next unlock)"
+        ),
+        encryption::KdfParams::Argon2id { m_cost, t_cost, p_cost } => tracing::info!(
+            "KDF: Argon2id (m={m_cost} KiB, t={t_cost}, p={p_cost})"
+        ),
+    }
 
     let config_path_str = config_path
         .to_str()
@@ -421,7 +428,7 @@ pub fn run() {
         verification_token: RwLock::new(verification_token),
         config_path: config_path_str,
         data_dir: data_dir_str,
-        kdf_iterations: RwLock::new(kdf_iterations_loaded),
+        kdf_params: RwLock::new(kdf_params_loaded),
         last_activity_ts: Arc::new(std::sync::atomic::AtomicU64::new(current_unix_secs())),
         auto_lock_secs: RwLock::new(auto_lock_secs_loaded),
         unlock_fail_count: Arc::new(std::sync::atomic::AtomicU32::new(0)),
@@ -436,6 +443,7 @@ pub fn run() {
         ssh_sessions: DashMap::new(),
         shell_sessions: DashMap::new(),
         docker_exec_sessions: DashMap::new(),
+        telnet_sessions: DashMap::new(),
         network_scan_cancel: DashMap::new(),
         sftp_pool: DashMap::new(),
         recording_sessions: DashMap::new(),
@@ -637,6 +645,14 @@ pub fn run() {
             commands::local_shell::shell_send_input,
             commands::local_shell::shell_disconnect,
             commands::local_shell::shell_resize,
+            telnet::telnet_connect,
+            telnet::telnet_send,
+            telnet::telnet_disconnect,
+            backup::vault_backup,
+            backup::vault_restore,
+            totp::totp_add,
+            totp::totp_list,
+            totp::totp_delete,
             // RDP
             commands::rdp_cmds::rdp_check_available,
             commands::rdp_cmds::rdp_connect,
@@ -660,6 +676,12 @@ pub fn run() {
             network::scan_network,
             network::cancel_network_scan,
             network::ping_server,
+            network::wake_on_lan,
+            network::dns_lookup,
+            network::reverse_dns,
+            network::check_password_breach,
+            network::traceroute,
+            network::mac_vendor_lookup,
             // SFTP & FTP
             sftp_ftp::sftp_list_dir,
             sftp_ftp::sftp_upload,

@@ -153,6 +153,19 @@ pub fn spawn_local_shell(app: &AppHandle, session_id: &str) -> Result<LocalShell
                 Ok(0) => break,
                 Ok(n) => {
                     let data = String::from_utf8_lossy(&buffer[..n]).to_string();
+                    // M2: feed output into the asciicast recorder if one is active
+                    // for this session (recorder is protocol-agnostic).
+                    {
+                        use tauri::Manager;
+                        if let Some(rec) =
+                            app_clone.state::<crate::state::AppState>().recording_sessions.get(&sid)
+                        {
+                            if let Ok(mut g) = rec.lock() {
+                                let t = g.start_time.elapsed().as_secs_f64();
+                                g.events.push((t, 'o', data.clone()));
+                            }
+                        }
+                    }
                     let _ = app_clone.emit(
                         &format!("shell:data:{}", sid),
                         ShellDataEvent {

@@ -26,7 +26,7 @@ function makeConnection(id: string, name = 'srv'): ServerConnection {
         is_favorite: false, notes: null, use_ftps: false, rdp_nla: false,
         docker_transport: 'tcp', docker_socket_path: null,
         docker_tls_ca_path: null, docker_tls_cert_path: null, docker_tls_key_path: null,
-        proxmox_api_token_id: null, proxmox_api_token_secret_encrypted: null,
+        proxmox_api_token_id: null, proxmox_api_token_secret_encrypted: null, mac_address: null,
         created_at: '', updated_at: '',
     };
 }

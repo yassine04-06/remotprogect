@@ -101,6 +101,16 @@ fn get_csc_path() -> Option<String> {
     None
 }
 
+/// Returns the SHA-256 digest of `path`, or all-zeros on I/O error.
+/// Used to detect whether the cached RdpEmbed.exe has been tampered with.
+#[cfg(target_os = "windows")]
+fn rdp_exe_sha256(path: &std::path::Path) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    std::fs::read(path)
+        .map(|data| Sha256::digest(&data).into())
+        .unwrap_or([0u8; 32])
+}
+
 #[cfg(target_os = "windows")]
 pub fn ensure_helper_compiled(data_dir: &str) -> Result<String, String> {
     let exe_path = format!(r"{}\RdpEmbed.exe", data_dir);
@@ -125,26 +135,26 @@ pub fn ensure_helper_compiled(data_dir: &str) -> Result<String, String> {
         v
     };
 
-    // If a pre-compiled source exists, copy it to data_dir whenever it is
-    // newer than the cached copy (or the cache doesn't exist yet).
-    // This guarantees that rebuilding RdpEmbed.exe always takes effect on the
-    // next launch — no stale cached binary.
+    // If a pre-compiled source exists, copy it to data_dir when its SHA-256
+    // differs from the cached copy (or the cache doesn't exist yet).
+    // SHA-256 comparison is tamper-evident: an attacker who modifies the cached
+    // binary without touching the bundled source will always be overwritten.
     for pre_compiled in &pre_compiled_candidates {
         if pre_compiled.exists() {
-            let should_copy = if std::path::Path::new(&exe_path).exists() {
-                // Compare modification times: copy only if source is newer.
-                let src_mtime = std::fs::metadata(pre_compiled)
-                    .and_then(|m| m.modified())
-                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                let dst_mtime = std::fs::metadata(&exe_path)
-                    .and_then(|m| m.modified())
-                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                src_mtime > dst_mtime
+            let dst = std::path::Path::new(&exe_path);
+            let should_copy = if dst.exists() {
+                rdp_exe_sha256(pre_compiled) != rdp_exe_sha256(dst)
             } else {
-                true // cache doesn't exist yet
+                true
             };
 
             if should_copy {
+                if dst.exists() {
+                    tracing::warn!(
+                        "RdpEmbed.exe: cached binary SHA-256 differs from bundled source — \
+                         replacing (possible tampering or stale cache)"
+                    );
+                }
                 std::fs::copy(pre_compiled, &exe_path)
                     .map_err(|e| format!("Failed to copy pre-compiled RdpEmbed.exe: {}", e))?;
                 tracing::info!("RdpEmbed.exe updated from {:?}", pre_compiled);
@@ -234,7 +244,8 @@ pub fn launch_rdp_embedded(
         .arg(host)
         .arg(port.to_string())
         .arg(username)
-        .arg(password)
+        // password intentionally omitted from argv — sent via stdin to avoid
+        // process-table exposure (Task Manager / WMI / NtQuerySystemInformation).
         .arg(parent_hwnd.to_string())
         .arg(x.to_string())
         .arg(y.to_string())
@@ -245,6 +256,16 @@ pub fn launch_rdp_embedded(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to launch RdpEmbed.exe: {}", e))?;
+
+    // Send credential via stdin before the C# Shown handler reads it.
+    // Format: "CRED:<password>\n" — consumed by RdpEmbed before rdpClient.Connect().
+    if let Some(ref mut stdin_pipe) = child.stdin {
+        writeln!(stdin_pipe, "CRED:{}", password)
+            .map_err(|e| format!("Failed to send RDP credential via stdin: {}", e))?;
+        stdin_pipe
+            .flush()
+            .map_err(|e| format!("Failed to flush RDP credential: {}", e))?;
+    }
 
     let stdin = child.stdin.take();
     let stdout = child
@@ -506,7 +527,28 @@ pub fn launch_rdp_mstsc(
             cmd.arg("/f");
         }
         if !password.is_empty() {
-            cmd.arg(format!("/p:{}", password));
+            // Write password to a 0600 temp file; xfreerdp reads it via /passwd-file.
+            // Avoids passing the credential on the process command line.
+            let tmp_pass = std::env::temp_dir()
+                .join(format!("nexorc_rdp_{}.tmp", uuid::Uuid::new_v4()));
+            std::fs::write(&tmp_pass, password)
+                .map_err(|e| format!("Failed to write RDP passwd-file: {}", e))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&tmp_pass, std::fs::Permissions::from_mode(0o600));
+            }
+            let tmp_str = tmp_pass
+                .to_str()
+                .ok_or("passwd-file path is not valid UTF-8")?;
+            cmd.arg(format!("/passwd-file:{}", tmp_str));
+            // Delete the temp file in a background thread after a short delay
+            // to ensure xfreerdp has read it before removal.
+            let tmp_owned = tmp_pass.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                let _ = std::fs::remove_file(tmp_owned);
+            });
         }
 
         cmd.spawn()

@@ -9,19 +9,83 @@ export type Group = { id: string, name: string, parent_id: string | null, sort_o
 
 export type CredentialProfile = { id: string, name: string, type: CredentialType, description: string | null, username: string | null, password_encrypted: string | null, private_key_encrypted: string | null, domain: string | null, created_at: number, updated_at: number, };
 
-export type CreateCredentialProfileRequest = { name: string, type: CredentialType, description: string | null, username: string | null, /** Preferred over password_encrypted — server encrypts it. */ password_plaintext?: string | null, password_encrypted?: string | null, /** Preferred over private_key_encrypted — server encrypts it. */ private_key_plaintext?: string | null, private_key_encrypted?: string | null, domain: string | null, };
+export type CreateCredentialProfileRequest = { name: string, type: CredentialType, description: string | null, username: string | null, 
+/**
+ * Preferred: send plaintext here and let the server encrypt it.
+ */
+password_plaintext?: string | null, 
+/**
+ * Legacy: pre-encrypted ciphertext (still accepted for back-compat).
+ */
+password_encrypted: string | null, 
+/**
+ * Preferred: send plaintext here and let the server encrypt it.
+ */
+private_key_plaintext?: string | null, 
+/**
+ * Legacy: pre-encrypted ciphertext (still accepted for back-compat).
+ */
+private_key_encrypted: string | null, domain: string | null, };
 
-export type UpdateCredentialProfileRequest = { id: string, name: string, type: CredentialType, description: string | null, username: string | null, /** Preferred over password_encrypted — server encrypts it. */ password_plaintext?: string | null, password_encrypted?: string | null, /** Preferred over private_key_encrypted — server encrypts it. */ private_key_plaintext?: string | null, private_key_encrypted?: string | null, domain: string | null, };
+export type UpdateCredentialProfileRequest = { id: string, name: string, type: CredentialType, description: string | null, username: string | null, 
+/**
+ * Preferred: send plaintext here and let the server encrypt it.
+ */
+password_plaintext?: string | null, 
+/**
+ * Legacy: pre-encrypted ciphertext (still accepted for back-compat).
+ */
+password_encrypted: string | null, 
+/**
+ * Preferred: send plaintext here and let the server encrypt it.
+ */
+private_key_plaintext?: string | null, 
+/**
+ * Legacy: pre-encrypted ciphertext (still accepted for back-compat).
+ */
+private_key_encrypted: string | null, domain: string | null, };
 
 export type ResolvedCredentials = { username: string, password_decrypted: string | null, private_key_decrypted: string | null, domain: string | null, };
 
-export type ConnectionSummary = { id: string, name: string, host: string, port: number, protocol: 'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER', group_id: string | null, credential_profile_id: string | null, override_credentials: boolean, is_favorite: boolean, last_connected_at: number | null, tags: string | null, };
+export type ConnectionSummary = { id: string, name: string, host: string, port: number, protocol: 'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER' | 'TELNET', group_id: string | null, credential_profile_id: string | null, override_credentials: boolean, is_favorite: boolean, last_connected_at: number | null, tags: string | null, };
 
-export type ServerConnection = { id: string, name: string, host: string, port: number, protocol: 'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER', username: string, password_encrypted: string | null, private_key_encrypted: string | null, group_id: string | null, use_private_key: boolean, rdp_width: number, rdp_height: number, rdp_fullscreen: boolean, domain: string, rdp_color_depth: number, rdp_redirect_audio: boolean, rdp_redirect_printers: boolean, rdp_redirect_drives: boolean, ssh_tunnels: Array<SshTunnel> | null, credential_profile_id: string | null, override_credentials: boolean, jump_host_id: string | null, use_ssh_agent: boolean, ssh_key_id: string | null, tags: string | null, last_connected_at: number | null, is_favorite: boolean, notes: string | null, use_ftps: boolean, rdp_nla: boolean, docker_transport: 'tcp' | 'socket' | 'https', docker_socket_path: string | null, docker_tls_ca_path: string | null, docker_tls_cert_path: string | null, docker_tls_key_path: string | null, proxmox_api_token_id: string | null, proxmox_api_token_secret_encrypted: string | null, created_at: string, updated_at: string, };
+export type ServerConnection = { id: string, name: string, host: string, port: number, protocol: 'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER' | 'TELNET', username: string, password_encrypted: string | null, private_key_encrypted: string | null, group_id: string | null, use_private_key: boolean, rdp_width: number, rdp_height: number, rdp_fullscreen: boolean, domain: string, rdp_color_depth: number, rdp_redirect_audio: boolean, rdp_redirect_printers: boolean, rdp_redirect_drives: boolean, ssh_tunnels: Array<SshTunnel> | null, credential_profile_id: string | null, override_credentials: boolean, jump_host_id: string | null, use_ssh_agent: boolean, ssh_key_id: string | null, tags: string | null, last_connected_at: number | null, is_favorite: boolean, notes: string | null, use_ftps: boolean, rdp_nla: boolean, docker_transport: 'tcp' | 'socket' | 'https', docker_socket_path: string | null, docker_tls_ca_path: string | null, docker_tls_cert_path: string | null, docker_tls_key_path: string | null, proxmox_api_token_id: string | null, proxmox_api_token_secret_encrypted: string | null, mac_address: string | null, created_at: string, updated_at: string, };
 
-export type CreateConnectionRequest = { name: string, host: string, port: number, protocol: 'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER', username: string, /** Preferred — server encrypts it. */ password_plaintext?: string | null, password_encrypted?: string | null, /** Preferred — server encrypts it. */ private_key_plaintext?: string | null, private_key_encrypted?: string | null, group_id: string | null, use_private_key: boolean, rdp_width: number | null, rdp_height: number | null, rdp_fullscreen: boolean | null, domain: string | null, rdp_color_depth: number | null, rdp_redirect_audio: boolean | null, rdp_redirect_printers: boolean | null, rdp_redirect_drives: boolean | null, ssh_tunnels: Array<SshTunnel> | null, credential_profile_id: string | null, override_credentials: boolean | null, jump_host_id: string | null, ssh_key_id: string | null, use_ssh_agent: boolean | null, tags: string | null, notes: string | null, use_ftps: boolean | null, rdp_nla: boolean | null, docker_transport: string | null, docker_socket_path: string | null, docker_tls_ca_path: string | null, docker_tls_cert_path: string | null, docker_tls_key_path: string | null, proxmox_api_token_id: string | null, proxmox_api_token_secret_encrypted: string | null, };
+export type CreateConnectionRequest = { name: string, host: string, port: number, protocol: 'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER' | 'TELNET', username: string, 
+/**
+ * Preferred: send plaintext here and let the server encrypt it.
+ */
+password_plaintext?: string | null, 
+/**
+ * Legacy: pre-encrypted ciphertext (still accepted for back-compat).
+ */
+password_encrypted: string | null, 
+/**
+ * Preferred: send plaintext here and let the server encrypt it.
+ */
+private_key_plaintext?: string | null, 
+/**
+ * Legacy: pre-encrypted ciphertext (still accepted for back-compat).
+ */
+private_key_encrypted: string | null, group_id: string | null, use_private_key: boolean, rdp_width: number | null, rdp_height: number | null, rdp_fullscreen: boolean | null, domain: string | null, rdp_color_depth: number | null, rdp_redirect_audio: boolean | null, rdp_redirect_printers: boolean | null, rdp_redirect_drives: boolean | null, ssh_tunnels: Array<SshTunnel> | null, credential_profile_id: string | null, override_credentials: boolean | null, jump_host_id: string | null, ssh_key_id: string | null, use_ssh_agent: boolean | null, tags: string | null, notes: string | null, use_ftps: boolean | null, rdp_nla: boolean | null, docker_transport: string | null, docker_socket_path: string | null, docker_tls_ca_path: string | null, docker_tls_cert_path: string | null, docker_tls_key_path: string | null, proxmox_api_token_id: string | null, proxmox_api_token_secret_encrypted: string | null, mac_address: string | null, };
 
-export type UpdateConnectionRequest = { id: string, name: string, host: string, port: number, protocol: 'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER', username: string, /** Preferred — server encrypts it. */ password_plaintext?: string | null, password_encrypted?: string | null, /** Preferred — server encrypts it. */ private_key_plaintext?: string | null, private_key_encrypted?: string | null, group_id: string | null, use_private_key: boolean, rdp_width: number | null, rdp_height: number | null, rdp_fullscreen: boolean | null, domain: string | null, rdp_color_depth: number | null, rdp_redirect_audio: boolean | null, rdp_redirect_printers: boolean | null, rdp_redirect_drives: boolean | null, ssh_tunnels: Array<SshTunnel> | null, credential_profile_id: string | null, override_credentials: boolean | null, jump_host_id: string | null, ssh_key_id: string | null, use_ssh_agent: boolean | null, tags: string | null, notes: string | null, use_ftps: boolean | null, rdp_nla: boolean | null, docker_transport: string | null, docker_socket_path: string | null, docker_tls_ca_path: string | null, docker_tls_cert_path: string | null, docker_tls_key_path: string | null, proxmox_api_token_id: string | null, proxmox_api_token_secret_encrypted: string | null, };
+export type UpdateConnectionRequest = { id: string, name: string, host: string, port: number, protocol: 'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER' | 'TELNET', username: string, 
+/**
+ * Preferred: send plaintext here and let the server encrypt it.
+ */
+password_plaintext?: string | null, 
+/**
+ * Legacy: pre-encrypted ciphertext (still accepted for back-compat).
+ */
+password_encrypted: string | null, 
+/**
+ * Preferred: send plaintext here and let the server encrypt it.
+ */
+private_key_plaintext?: string | null, 
+/**
+ * Legacy: pre-encrypted ciphertext (still accepted for back-compat).
+ */
+private_key_encrypted: string | null, group_id: string | null, use_private_key: boolean, rdp_width: number | null, rdp_height: number | null, rdp_fullscreen: boolean | null, domain: string | null, rdp_color_depth: number | null, rdp_redirect_audio: boolean | null, rdp_redirect_printers: boolean | null, rdp_redirect_drives: boolean | null, ssh_tunnels: Array<SshTunnel> | null, credential_profile_id: string | null, override_credentials: boolean | null, jump_host_id: string | null, ssh_key_id: string | null, use_ssh_agent: boolean | null, tags: string | null, notes: string | null, use_ftps: boolean | null, rdp_nla: boolean | null, docker_transport: string | null, docker_socket_path: string | null, docker_tls_ca_path: string | null, docker_tls_cert_path: string | null, docker_tls_key_path: string | null, proxmox_api_token_id: string | null, proxmox_api_token_secret_encrypted: string | null, mac_address: string | null, };
 
 export type ExportData = { version: number, connections: Array<ServerConnection>, groups: Array<Group>, credential_profiles: Array<CredentialProfile>, };
 
@@ -31,7 +95,6 @@ export type CreateSavedCommandRequest = { name: string, command: string, descrip
 
 export type UpdateSavedCommandRequest = { id: string, name: string, command: string, description: string | null, tags: string | null, };
 
-// MED-A7: first_run is now a separate `is_first_run` command (returns boolean directly)
 export type VaultStatus = { unlocked: boolean, };
 
 export type RdpAvailability = { available: boolean, binary: string, message: string, };
@@ -46,10 +109,17 @@ export type DockerContainer = { Id: string, Names: Array<string>, Image: string,
 
 export type NetworkScanResult = { ip: string, hostname: string, ssh: boolean, telnet: boolean, http: boolean, https: boolean, rlogin: boolean, rdp: boolean, vnc: boolean, open_ports: Array<number>, closed_ports: Array<number>, };
 
-export type ToolResult = { stdout: string, stderr: string, success: boolean, code: number | null, };
+export type TotpCode = { id: string, label: string, 
+/**
+ * Current 6-digit code (zero-padded).
+ */
+code: string, 
+/**
+ * Seconds until the code rotates.
+ */
+seconds_remaining: number, };
 
-// MED-A8: Proxmox TOFU-pinned certificate entry (display only — no raw DER).
-export type ProxmoxPinnedCert = { host_key: string, fingerprint_sha256: string, added_at: number, };
+export type ToolResult = { stdout: string, stderr: string, success: boolean, code: number | null, };
 
 export type SshStatusEvent = { session_id: string, status: string, message: string, };
 
@@ -65,17 +135,81 @@ export type SshKey = { id: string, name: string, key_type: string, public_key: s
  */
 private_key_encrypted: string, fingerprint: string, comment: string | null, created_at: number, };
 
-export type CreateSshKeyRequest = { name: string, key_type: string, public_key: string, /** Preferred — server encrypts it. */ private_key_plaintext?: string | null, /** Legacy back-compat — use private_key_plaintext instead. */ private_key_encrypted?: string | null, fingerprint: string, comment: string | null, };
+export type CreateSshKeyRequest = { name: string, key_type: string, public_key: string, private_key_encrypted: string, fingerprint: string, comment: string | null, };
 
-export type RecordingInfo = { filename: string, path: string, size_bytes: number, };
+export type SshKeyCreateRequest = { name: string, key_type: string, public_key: string, private_key_plaintext?: string | null, private_key_encrypted?: string | null, fingerprint: string, comment?: string | null, };
 
-export type AuditEntry = { id: string, timestamp: number, action: string, entity_type: string, entity_id: string, entity_name: string, outcome: string, details: string, /** CRIT-A3: SHA-256 hash-chain node. Empty string for pre-v13 legacy entries. */ chain_hash: string, };
+export type ProxmoxPinnedCert = { 
+/**
+ * The map key used in proxmox_certs.json (format: "host:port")
+ */
+host_key: string, 
+/**
+ * SHA-256 fingerprint displayed to the user
+ */
+fingerprint_sha256: string, 
+/**
+ * Unix timestamp when the cert was first pinned
+ */
+added_at: number, };
 
-/** CRIT-A3: result of verifying a single audit log entry. */
-export type AuditVerifyEntry = { entry: AuditEntry, hash_valid: boolean, is_legacy: boolean, };
+export type RecordingInfo = { filename: string, path: string, size_bytes: number, 
+/**
+ * True when the file was encrypted with the vault key (AES-256-GCM v2 prefix).
+ * False for recordings saved while the vault was locked, or legacy plaintext files.
+ */
+encrypted: boolean, };
 
-/** CRIT-A3: overall chain verification result. */
-export type AuditVerifyResult = { entries: AuditVerifyEntry[], chain_intact: boolean, legacy_count: number, tampered_count: number, };
+export type ImportedConnection = { name: string, host: string, port: number, 
+/**
+ * "SSH" | "RDP" | "VNC" | "SFTP" | "FTP"
+ */
+protocol: string, username: string, 
+/**
+ * Plaintext password — encrypted on bulk_import_connections.
+ */
+password: string | null, domain: string | null, 
+/**
+ * Slash-delimited group hierarchy, e.g. "Servers/Production".
+ */
+group_path: string | null, rdp_width: number | null, rdp_height: number | null, rdp_color_depth: number | null, rdp_redirect_drives: boolean, rdp_redirect_printers: boolean, rdp_redirect_audio: boolean, ssh_key_path: string | null, 
+/**
+ * "putty" | "rdp_file" | "mremoteng"
+ */
+source: string, 
+/**
+ * Non-fatal issue encountered during parsing.
+ */
+warning: string | null, };
 
-export type ImportedConnection = { name: string, host: string, port: number, protocol: 'SSH' | 'RDP' | 'VNC' | 'SFTP' | 'FTP', username: string, password: string | null, domain: string | null, group_path: string | null, rdp_width: number | null, rdp_height: number | null, rdp_color_depth: number | null, rdp_redirect_drives: boolean, rdp_redirect_printers: boolean, rdp_redirect_audio: boolean, ssh_key_path: string | null, source: 'putty' | 'rdp_file' | 'mremoteng' | 'ssh_config' | 'rdm' | 'royalts', warning: string | null, };
+export type AuditEntry = { id: string, timestamp: number, action: string, entity_type: string, entity_id: string, entity_name: string, outcome: string, details: string, 
+/**
+ * CRIT-A3: SHA-256 hash-chain node. Empty string for entries written before
+ * v13 (treated as "legacy" by audit_log_verify).
+ */
+chain_hash: string, };
+
+export type AuditVerifyEntry = { entry: AuditEntry, 
+/**
+ * `true` if the stored chain_hash matches the recomputed value.
+ */
+hash_valid: boolean, 
+/**
+ * `true` for rows written before v13 (chain_hash is empty — cannot verify).
+ */
+is_legacy: boolean, };
+
+export type AuditVerifyResult = { entries: Array<AuditVerifyEntry>, 
+/**
+ * `true` only if every post-v13 entry has a valid hash and the chain is intact.
+ */
+chain_intact: boolean, 
+/**
+ * Number of legacy (pre-v13) entries that could not be verified.
+ */
+legacy_count: number, 
+/**
+ * Number of entries with invalid hashes (tampered or reordered).
+ */
+tampered_count: number, };
 

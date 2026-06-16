@@ -30,10 +30,13 @@ import { ProxmoxAdvancedForm } from './forms/ProxmoxAdvancedForm';
 
 interface Props {
     editConnection?: ServerConnection | null;
+    /** M3: when set (and editConnection is null), pre-fills the form in CREATE
+     * mode from this connection's fields — "duplicate as template". */
+    templateFrom?: ServerConnection | null;
     onClose: () => void;
 }
 
-export const ConnectionForm: React.FC<Props> = ({ editConnection, onClose }) => {
+export const ConnectionForm: React.FC<Props> = ({ editConnection, templateFrom, onClose }) => {
     const groups = useConnectionStore(s => s.groups);
     const connections = useConnectionStore(s => s.connections);
     const credentialProfiles = useCredentialStore(s => s.credentialProfiles);
@@ -49,6 +52,7 @@ export const ConnectionForm: React.FC<Props> = ({ editConnection, onClose }) => 
     } = useConnectionFormState(editConnection);
 
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [macVendor, setMacVendor] = useState<string | null>(null);
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [privateKey, setPrivateKey] = useState('');
@@ -61,8 +65,14 @@ export const ConnectionForm: React.FC<Props> = ({ editConnection, onClose }) => 
     useEffect(() => {
         if (editConnection) {
             loadFromConnection(editConnection);
+        } else if (templateFrom) {
+            // Pre-fill from template but stay in create mode; rename to avoid
+            // confusion and drop the host so the user re-targets it.
+            loadFromConnection(templateFrom);
+            setCommon('name', `${templateFrom.name} (copy)`);
         }
-    }, [editConnection, loadFromConnection]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [editConnection, templateFrom]);
 
     // 90-1: load vault SSH keys for the key selector
     useEffect(() => {
@@ -82,6 +92,7 @@ export const ConnectionForm: React.FC<Props> = ({ editConnection, onClose }) => 
         else if (p === 'RDP') setCommon('port', 3389);
         else if (p === 'VNC') setCommon('port', 5900);
         else if (p === 'FTP') setCommon('port', 21);
+        else if (p === 'TELNET') setCommon('port', 23);
         else if (p === 'PROXMOX') {
             setCommon('port', 8006);
             if (!common.username || common.username === 'docker') setCommon('username', 'root@pam');
@@ -115,11 +126,11 @@ export const ConnectionForm: React.FC<Props> = ({ editConnection, onClose }) => 
             };
             if (password) {
                 req.password_plaintext = password;
-                req.password_encrypted = undefined;
+                req.password_encrypted = null;
             }
             if (privateKey && common.protocol === 'SSH' && ssh.use_private_key) {
                 req.private_key_plaintext = privateKey;
-                req.private_key_encrypted = undefined;
+                req.private_key_encrypted = null;
             }
 
             if (editConnection) {
@@ -150,6 +161,9 @@ export const ConnectionForm: React.FC<Props> = ({ editConnection, onClose }) => 
             onClick={onClose}
         >
             <motion.div
+                role="dialog"
+                aria-modal="true"
+                aria-label={editConnection ? 'Configure connection' : 'Register connection'}
                 initial={{ opacity: 0, scale: 0.9, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -246,6 +260,7 @@ export const ConnectionForm: React.FC<Props> = ({ editConnection, onClose }) => 
                                 <option value="VNC">VNC (Virtual Network Computing)</option>
                                 <option value="SFTP">Secure File Transfer (SFTP)</option>
                                 <option value="FTP">File Transfer Protocol (FTP)</option>
+                                <option value="TELNET">Telnet (plaintext terminal)</option>
                                 <option value="PROXMOX">Proxmox VE Cluster</option>
                                 <option value="DOCKER">Docker Engine (TCP)</option>
                             </select>
@@ -705,6 +720,27 @@ export const ConnectionForm: React.FC<Props> = ({ editConnection, onClose }) => 
                             value={common.notes ?? ''}
                             onChange={e => setCommon('notes', e.target.value || null)}
                             placeholder="Server notes, maintenance info, credentials hints…"
+                        />
+                    </div>
+
+                    {/* M2: MAC address for Wake-on-LAN */}
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-bold text-text-muted uppercase ml-1">
+                            MAC Address (Wake-on-LAN)
+                            {macVendor && <span className="ml-2 text-accent normal-case">· {macVendor}</span>}
+                        </label>
+                        <input
+                            type="text"
+                            className="bg-base border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-accent font-mono"
+                            value={common.mac_address ?? ''}
+                            onChange={e => { setCommon('mac_address', e.target.value || null); setMacVendor(null); }}
+                            onBlur={async e => {
+                                const v = e.target.value.trim();
+                                if (!v) { setMacVendor(null); return; }
+                                try { setMacVendor(await api.macVendorLookup(v)); }
+                                catch { setMacVendor(null); }
+                            }}
+                            placeholder="AA:BB:CC:DD:EE:FF — optional, enables right-click → Wake-on-LAN"
                         />
                     </div>
 

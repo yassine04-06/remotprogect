@@ -28,6 +28,10 @@ dist-ssr
 *.key
 nexorc-updater.key*
 
+# Rust / Tauri build artifacts (large, regenerable — never commit)
+/src-tauri/target
+target/
+
 # Exception: RdpEmbed.exe is a pre-compiled WPF helper bundled with the app
 # It must stay in the repo even though *.exe is ignored above
 !src-tauri/helpers/RdpEmbed.exe

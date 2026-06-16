@@ -45,6 +45,7 @@ function makeConnection(overrides: Partial<ServerConnection> = {}): ServerConnec
         docker_tls_key_path: null,
         proxmox_api_token_id: 'user@pam!tok',
         proxmox_api_token_secret_encrypted: 'enc-secret',
+        mac_address: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         ...overrides,

@@ -27,7 +27,7 @@ export const createConnection = (request: CreateConnectionRequest) =>
     invoke<ServerConnection>('create_connection', { request });
 
 export const updateConnection = (request: UpdateConnectionRequest) =>
-    invoke('update_connection', { request });
+    invoke<ServerConnection>('update_connection', { request });
 
 export const deleteConnection = (id: string) => invoke('delete_connection', { id });
 

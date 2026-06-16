@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
     Settings,
     Shield,
+    ShieldCheck,
     Globe,
     Terminal,
     KeyRound,
@@ -11,7 +12,7 @@ import {
     Library,
 } from 'lucide-react';
 import { useUIStore, useTabStore } from '../store';
-import { ConnectionTabs } from './ConnectionTabs';
+import { ConnectionTabs } from './sidebar/ConnectionTabs';
 
 interface AppTopbarProps {
     onLock: () => void;
@@ -27,6 +28,7 @@ export function AppTopbar({ onLock }: AppTopbarProps) {
     const setShowCredentialManager = useUIStore(s => s.setShowCredentialManager);
     const setShowAuditLog = useUIStore(s => s.setShowAuditLog);
     const setShowRecordings = useUIStore(s => s.setShowRecordings);
+    const setShowTotpModal = useUIStore(s => s.setShowTotpModal);
     const setShowCommandLibraryDialog = useUIStore(s => s.setShowCommandLibraryDialog);
 
     const tabs = useTabStore(s => s.tabs);
@@ -64,6 +66,7 @@ export function AppTopbar({ onLock }: AppTopbarProps) {
         { icon: KeyRound, label: 'Credential Profiles', action: () => setShowCredentialManager(true) },
         { icon: Film, label: 'Session Recordings', action: () => setShowRecordings(true) },
         { icon: ClipboardList, label: 'Audit Log', action: () => setShowAuditLog(true) },
+        { icon: ShieldCheck, label: '2FA Codes', action: () => setShowTotpModal(true) },
     ];
 
     return (

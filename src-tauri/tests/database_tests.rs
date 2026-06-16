@@ -108,6 +108,7 @@ fn test_update_connection() {
         docker_socket_path: None,
         proxmox_api_token_id: None,
         proxmox_api_token_secret_encrypted: None,
+        mac_address: None,
         docker_tls_ca_path: None,
         docker_tls_cert_path: None,
         docker_tls_key_path: None,
@@ -235,6 +236,7 @@ fn test_update_connection_preserves_encrypted_fields() {
         docker_socket_path: None,
         proxmox_api_token_id: None,
         proxmox_api_token_secret_encrypted: None,
+        mac_address: None,
         docker_tls_ca_path: None,
         docker_tls_cert_path: None,
         docker_tls_key_path: None,
@@ -552,8 +554,12 @@ fn test_schema_version_is_correct() {
         )
         .expect("could not query schema_version");
 
-    // Current schema version — keep in sync with CURRENT_SCHEMA_VERSION in migrations.rs
-    assert_eq!(version, 13, "schema version should be 13 after migrations");
+    // Bind to the constant so this test never goes stale when a migration is added.
+    assert_eq!(
+        version,
+        database::CURRENT_SCHEMA_VERSION,
+        "schema version should equal CURRENT_SCHEMA_VERSION after migrations"
+    );
 }
 
 #[test]

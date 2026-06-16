@@ -1,4 +1,5 @@
 use crate::docker::DockerExecSession;
+use crate::encryption::KdfParams;
 use crate::rdp::EmbeddedRdpSession;
 use crate::vnc_client::VncSession;
 use dashmap::DashMap;
@@ -40,9 +41,10 @@ pub struct AppState {
     pub db: r2d2::Pool<SqliteConnectionManager>,
 
     /// Encryption key derived from the master password. None = vault locked.
-    pub encryption_key: RwLock<Option<[u8; 32]>>,
+    /// Heap-allocated and memory-locked (mlock/VirtualLock) to prevent swap.
+    pub encryption_key: RwLock<Option<crate::locked_key::MlockedKey>>,
 
-    /// PBKDF2 salt.
+    /// KDF salt — used for both PBKDF2 and Argon2id derivation.
     pub salt: RwLock<Option<Vec<u8>>>,
 
     /// Verification token used to confirm the master password is correct.
@@ -55,10 +57,9 @@ pub struct AppState {
     pub data_dir: String,
 
     // ── Vault hardening ───────────────────────────────────────────────────────
-    /// PBKDF2 iteration count used when this vault was last (re-)keyed.
-    /// Read from config.json so existing vaults unlock with their recorded count;
-    /// bumped to DEFAULT_KDF_ITERATIONS on every set/change_master_password.
-    pub kdf_iterations: RwLock<u32>,
+    /// KDF parameters used when this vault was last (re-)keyed.
+    /// PBKDF2 vaults are silently migrated to Argon2id on the first successful unlock.
+    pub kdf_params: RwLock<KdfParams>,
 
     /// Unix-second timestamp of the last vault-touching IPC call.
     /// Written with Relaxed ordering — coarse-grained idle tracking only.
@@ -96,6 +97,9 @@ pub struct AppState {
 
     /// Active Docker exec sessions, keyed by session ID.
     pub docker_exec_sessions: DashMap<String, DockerExecSession>,
+
+    /// Active Telnet sessions: session_id → input sender (bytes to the socket).
+    pub telnet_sessions: DashMap<String, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
 
     /// LOW-A8: Per-scan cancellation flags keyed by scan_id.
     /// Using a DashMap allows multiple concurrent scans and cancels
@@ -138,7 +142,7 @@ pub struct AppState {
     /// vault unlocked in RAM but permanently locked-out at the IPC level until
     /// the lockout timer expires.
     ///
-    /// PBKDF2 at 600 k iterations takes ~100–300 ms; holding a blocking Mutex
+    /// KDF (~100–600 ms depending on algorithm); holding a blocking Mutex
     /// for that duration is acceptable on a single-user desktop app.
     pub unlock_mutex: std::sync::Mutex<()>,
 }

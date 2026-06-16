@@ -15,15 +15,18 @@ pub fn ssh_key_list(
     Ok(database::ssh_key_list(&conn)?)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
 pub struct SshKeyCreateRequest {
-    name: String,
-    key_type: String,
-    public_key: String,
-    private_key_plaintext: Option<String>,
-    private_key_encrypted: Option<String>,
-    fingerprint: String,
-    comment: Option<String>,
+    pub name: String,
+    pub key_type: String,
+    pub public_key: String,
+    #[ts(optional = nullable)]
+    pub private_key_plaintext: Option<String>,
+    #[ts(optional = nullable)]
+    pub private_key_encrypted: Option<String>,
+    pub fingerprint: String,
+    #[ts(optional = nullable)]
+    pub comment: Option<String>,
 }
 
 #[tauri::command]
@@ -33,7 +36,7 @@ pub fn ssh_key_create(
 ) -> Result<database::SshKey, crate::error::AppError> {
     let encrypted = if let Some(pt) = request.private_key_plaintext.filter(|s| !s.is_empty()) {
         let key_guard = state.encryption_key.read().map_err(lock_err)?;
-        let key = key_guard.as_ref().ok_or("Vault locked")?;
+        let key = key_guard.as_ref().ok_or("Vault locked")?.expose();
         encryption::encrypt_v2(&pt, key)?
     } else {
         request
@@ -81,7 +84,7 @@ pub fn ssh_key_generate(
         .encryption_key
         .read()
         .map_err(|e| format!("Lock: {}", e))?;
-    let master_key = key_guard.as_ref().ok_or("Vault locked")?;
+    let master_key = key_guard.as_ref().ok_or("Vault locked")?.expose();
 
     let tmp_dir =
         std::env::temp_dir().join(format!("nxk_{}", &uuid::Uuid::new_v4().to_string()[..8]));

@@ -68,6 +68,67 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
+  # ── Dependency advisory audit ────────────────────────────
+  # Flags known CVEs / yanked crates in the dependency tree. Non-blocking
+  # (continue-on-error) so a fresh advisory doesn't break unrelated PRs, but
+  # surfaces in the Actions log for triage.
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        working-directory: src-tauri
+        run: cargo audit
+
+  # ── SBOM (CycloneDX) ─────────────────────────────────────
+  # Software Bill of Materials for supply-chain transparency. Generated on
+  # every push to main and uploaded as a build artifact.
+  sbom:
+    name: SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked
+
+      - name: Generate Rust SBOM
+        working-directory: src-tauri
+        run: cargo cyclonedx --format json --override-filename sbom-rust
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Generate npm SBOM
+        run: |
+          npm ci
+          npx @cyclonedx/cyclonedx-npm --output-file sbom-npm.json || true
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            src-tauri/sbom-rust.json
+            sbom-npm.json
+          retention-days: 90
+          if-no-files-found: warn
+
   # ── Frontend checks ──────────────────────────────────────
   frontend:
     name: Frontend
@@ -203,13 +264,31 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          # macOS universal binary (Intel + Apple Silicon)
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+          # Linux x86_64
+          - platform: ubuntu-latest
+            args: ''
+            rust_targets: ''
+          # Linux ARM64 (GitHub-hosted arm runner)
+          - platform: ubuntu-24.04-arm
+            args: ''
+            rust_targets: ''
+          # Windows x86_64
+          - platform: windows-latest
+            args: ''
+            rust_targets: ''
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
@@ -258,4 +337,25 @@ jobs:
           releaseBody: |
             See the [CHANGELOG](CHANGELOG.md) for details.
           releaseDraft: true
-          prerelease: false
+          # Beta channel: tags like v1.0.0-beta.1 / v1.0.0-rc.1 (containing a
+          # hyphen) are published as pre-releases, separate from stable.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: ${{ matrix.args }}
+
+      # GPG-sign Linux bundles (defence in depth). Runs only when a GPG key is
+      # configured in repo secrets — a no-op otherwise.
+      - name: GPG-sign Linux bundles
+        if: runner.os == 'Linux' && env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          shopt -s nullglob
+          for f in src-tauri/target/release/bundle/deb/*.deb \
+                   src-tauri/target/release/bundle/appimage/*.AppImage; do
+            gpg --batch --yes --pinentry-mode loopback \
+                --passphrase "$GPG_PASSPHRASE" --detach-sign --armor "$f"
+            gh release upload "${{ github.ref_name }}" "$f.asc" --clobber
+          done

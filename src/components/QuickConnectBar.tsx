@@ -88,9 +88,13 @@ export function QuickConnectBar() {
                 docker_tls_key_path: null,
                 proxmox_api_token_id: null,
                 proxmox_api_token_secret_encrypted: null,
+                password_encrypted: null,
+                private_key_encrypted: null,
+                mac_address: null,
             });
-            const fresh = await api.getConnections();
-            setConnections(fresh);
+            // Optimistic: append the newly-created connection instead of
+            // re-fetching the whole list from the backend.
+            setConnections([...useConnectionStore.getState().connections, conn]);
             openTab(conn);
             setInput('');
         } catch (e) {

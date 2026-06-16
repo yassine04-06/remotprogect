@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
-import type { SshKey, CreateSshKeyRequest } from '../../types';
+import type { SshKey, SshKeyCreateRequest } from '../../types';
 
 // Safe wrapper: returns a rejected promise instead of throwing synchronously
 // when window.__TAURI_INTERNALS__ is not yet available (race condition on load).
@@ -15,7 +15,7 @@ function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
 
 export const sshKeyList = () => invoke<SshKey[]>('ssh_key_list');
 
-export const sshKeyCreate = (request: CreateSshKeyRequest) =>
+export const sshKeyCreate = (request: SshKeyCreateRequest) =>
     invoke<SshKey>('ssh_key_create', { request });
 
 export const sshKeyDelete = (id: string) => invoke<void>('ssh_key_delete', { id });

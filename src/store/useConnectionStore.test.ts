@@ -39,7 +39,7 @@ function makeConn(id: string, name = `srv-${id}`): ServerConnection {
         is_favorite: false, notes: null, use_ftps: false, rdp_nla: false,
         docker_transport: 'tcp', docker_socket_path: null,
         docker_tls_ca_path: null, docker_tls_cert_path: null, docker_tls_key_path: null,
-        proxmox_api_token_id: null, proxmox_api_token_secret_encrypted: null,
+        proxmox_api_token_id: null, proxmox_api_token_secret_encrypted: null, mac_address: null,
         created_at: '', updated_at: '',
     };
 }
@@ -60,7 +60,7 @@ function makeCreateReq(name: string): CreateConnectionRequest {
         notes: null, use_ftps: null, rdp_nla: null, docker_transport: null,
         docker_socket_path: null, docker_tls_ca_path: null,
         docker_tls_cert_path: null, docker_tls_key_path: null,
-        proxmox_api_token_id: null, proxmox_api_token_secret_encrypted: null,
+        proxmox_api_token_id: null, proxmox_api_token_secret_encrypted: null, mac_address: null,
     };
 }
 
@@ -103,42 +103,43 @@ describe('useConnectionStore — fetchConnections', () => {
 // ── CRUD: connections ────────────────────────────────────────────────────────
 
 describe('useConnectionStore — connection CRUD', () => {
-    it('createConnection calls the api and refreshes the connection list', async () => {
-        mockedApi.createConnection.mockResolvedValueOnce('conn-new' as never);
-        mockedApi.getConnections.mockResolvedValueOnce([makeConn('conn-new', 'New')]);
+    it('createConnection appends the returned connection without re-fetching', async () => {
+        const created = makeConn('conn-new', 'New');
+        mockedApi.createConnection.mockResolvedValueOnce(created as never);
         const req = makeCreateReq('New');
 
         await useConnectionStore.getState().createConnection(req);
 
         expect(mockedApi.createConnection).toHaveBeenCalledWith(req);
+        expect(mockedApi.getConnections).not.toHaveBeenCalled();
         expect(useConnectionStore.getState().connections).toHaveLength(1);
         expect(useConnectionStore.getState().connections[0].name).toBe('New');
     });
 
-    it('updateConnection refreshes the list and clears editingConnection', async () => {
-        useConnectionStore.setState({ editingConnection: makeConn('a') });
-        mockedApi.updateConnection.mockResolvedValueOnce(undefined as never);
-        mockedApi.getConnections.mockResolvedValueOnce([makeConn('a', 'Renamed')]);
+    it('updateConnection patches the list from the returned connection and clears editingConnection', async () => {
+        useConnectionStore.setState({ connections: [makeConn('a')], editingConnection: makeConn('a') });
+        mockedApi.updateConnection.mockResolvedValueOnce(makeConn('a', 'Renamed') as never);
 
         const updateReq = { ...makeCreateReq('Renamed'), id: 'a' } as UpdateConnectionRequest;
         await useConnectionStore.getState().updateConnection(updateReq);
 
         expect(mockedApi.updateConnection).toHaveBeenCalledWith(updateReq);
+        expect(mockedApi.getConnections).not.toHaveBeenCalled();
         const s = useConnectionStore.getState();
         expect(s.editingConnection).toBeNull();
         expect(s.connections[0].name).toBe('Renamed');
     });
 
-    it('deleteConnection refreshes the list', async () => {
+    it('deleteConnection filters locally without re-fetching', async () => {
         useConnectionStore.setState({
             connections: [makeConn('a'), makeConn('b')], loaded: true,
         });
         mockedApi.deleteConnection.mockResolvedValueOnce(undefined as never);
-        mockedApi.getConnections.mockResolvedValueOnce([makeConn('b')]);
 
         await useConnectionStore.getState().deleteConnection('a');
 
         expect(mockedApi.deleteConnection).toHaveBeenCalledWith('a');
+        expect(mockedApi.getConnections).not.toHaveBeenCalled();
         expect(useConnectionStore.getState().connections).toHaveLength(1);
         expect(useConnectionStore.getState().connections[0].id).toBe('b');
     });
@@ -147,33 +148,38 @@ describe('useConnectionStore — connection CRUD', () => {
 // ── CRUD: groups ─────────────────────────────────────────────────────────────
 
 describe('useConnectionStore — group CRUD', () => {
-    it('createGroup refreshes the group list', async () => {
-        mockedApi.createGroup.mockResolvedValueOnce(makeGroup('g1') as never);
-        mockedApi.getGroups.mockResolvedValueOnce([makeGroup('g1', 'Production')]);
+    it('createGroup appends the returned group without re-fetching', async () => {
+        const created = makeGroup('g1', 'Production');
+        mockedApi.createGroup.mockResolvedValueOnce(created as never);
 
         await useConnectionStore.getState().createGroup('Production', null);
 
         expect(mockedApi.createGroup).toHaveBeenCalledWith('Production', null);
+        expect(mockedApi.getGroups).not.toHaveBeenCalled();
         expect(useConnectionStore.getState().groups[0].name).toBe('Production');
     });
 
-    it('updateGroup refreshes the list and clears editingGroup', async () => {
-        useConnectionStore.setState({ editingGroup: makeGroup('g1') });
+    it('updateGroup patches the name locally and clears editingGroup', async () => {
+        useConnectionStore.setState({ groups: [makeGroup('g1')], editingGroup: makeGroup('g1') });
         mockedApi.updateGroup.mockResolvedValueOnce(undefined as never);
-        mockedApi.getGroups.mockResolvedValueOnce([makeGroup('g1', 'Renamed')]);
 
         await useConnectionStore.getState().updateGroup('g1', 'Renamed');
 
+        expect(mockedApi.getGroups).not.toHaveBeenCalled();
         expect(useConnectionStore.getState().editingGroup).toBeNull();
         expect(useConnectionStore.getState().groups[0].name).toBe('Renamed');
     });
 
-    it('deleteGroup refreshes the list', async () => {
+    it('deleteGroup filters locally without re-fetching', async () => {
+        useConnectionStore.setState({ groups: [makeGroup('g1'), makeGroup('g2')] });
         mockedApi.deleteGroup.mockResolvedValueOnce(undefined as never);
-        mockedApi.getGroups.mockResolvedValueOnce([]);
+
         await useConnectionStore.getState().deleteGroup('g1');
+
         expect(mockedApi.deleteGroup).toHaveBeenCalledWith('g1');
-        expect(useConnectionStore.getState().groups).toEqual([]);
+        expect(mockedApi.getGroups).not.toHaveBeenCalled();
+        expect(useConnectionStore.getState().groups).toHaveLength(1);
+        expect(useConnectionStore.getState().groups[0].id).toBe('g2');
     });
 });
 

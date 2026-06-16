@@ -12,7 +12,7 @@ export interface Tab {
     id: string;
     connectionId: string;
     connectionName: string;
-    protocol: 'SSH' | 'RDP' | 'VNC' | 'LOCAL' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER';
+    protocol: 'SSH' | 'RDP' | 'VNC' | 'LOCAL' | 'SFTP' | 'FTP' | 'PROXMOX' | 'DOCKER' | 'TELNET';
     status: TabStatus;
     connection?: ServerConnection;
 }

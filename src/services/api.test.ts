@@ -111,6 +111,7 @@ describe('Connection commands', () => {
             docker_tls_ca_path: null, docker_tls_cert_path: null, docker_tls_key_path: null,
             proxmox_api_token_id: null,
             proxmox_api_token_secret_encrypted: null,
+            mac_address: null,
         };
         await api.createConnection(req);
         expect(mockInvoke).toHaveBeenCalledWith('create_connection', { request: req });

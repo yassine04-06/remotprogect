@@ -591,7 +591,7 @@
       <div class="glass-card rounded-2xl p-6 reveal reveal-delay-1">
         <div class="text-3xl mb-4">🔐</div>
         <h3 class="text-lg font-bold text-white mb-2">Encrypted Vault</h3>
-        <p class="text-muted text-sm leading-relaxed">AES-256-GCM with PBKDF2 600k iterations. Zero plaintext ever stored on disk. Your secrets stay secret.</p>
+        <p class="text-muted text-sm leading-relaxed">AES-256-GCM with Argon2id memory-hard KDF. Zero plaintext ever stored on disk. GPU-resistant by design.</p>
       </div>
 
       <!-- Card 2 -->
@@ -664,8 +664,8 @@
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1.5 5.5 4.5 8.5 9.5 2.5"/></svg>
           </div>
           <div>
-            <h4 class="text-white font-semibold mb-1">PBKDF2-HMAC-SHA256, 600,000 Iterations</h4>
-            <p class="text-muted text-sm leading-relaxed">Your master password is never stored. It's stretched to a 256-bit key via 600k PBKDF2 rounds — far exceeding NIST and OWASP minimum recommendations.</p>
+            <h4 class="text-white font-semibold mb-1">Argon2id Memory-Hard KDF</h4>
+            <p class="text-muted text-sm leading-relaxed">Your master password is never stored. It's stretched to a 256-bit key via Argon2id (64 MiB, 3 passes, 4 threads) — the OWASP 2024 "High Security" standard, resistant to GPU and ASIC brute-force.</p>
           </div>
         </div>
 
@@ -699,11 +699,20 @@
             <span class="code-key">"schema"</span><span class="code-punc">: </span><span class="code-str">"nexorc-vault-v2"</span><span class="code-punc">,</span>
           </div>
           <div class="ml-4">
-            <span class="code-key">"kdf"</span><span class="code-punc">: </span><span class="code-str">"pbkdf2-hmac-sha256"</span><span class="code-punc">,</span>
+            <span class="code-key">"kdf"</span><span class="code-punc">: </span><span class="code-punc">{</span>
           </div>
-          <div class="ml-4">
-            <span class="code-key">"iterations"</span><span class="code-punc">: </span><span class="code-num">600000</span><span class="code-punc">,</span>
+          <div class="ml-8">
+            <span class="code-key">"algorithm"</span><span class="code-punc">: </span><span class="code-str">"argon2id"</span><span class="code-punc">,</span>
           </div>
+          <div class="ml-8">
+            <span class="code-key">"m_cost"</span><span class="code-punc">: </span><span class="code-num">65536</span><span class="code-punc">,</span>
+            <span class="code-comment"> // 64 MiB</span>
+          </div>
+          <div class="ml-8">
+            <span class="code-key">"t_cost"</span><span class="code-punc">: </span><span class="code-num">3</span><span class="code-punc">,</span>
+            <span class="code-key">"p_cost"</span><span class="code-punc">: </span><span class="code-num">4</span>
+          </div>
+          <div class="ml-4"><span class="code-punc">},</span></div>
           <div class="ml-4">
             <span class="code-key">"salt"</span><span class="code-punc">: </span><span class="code-str">"8xKm...q9Rn"</span><span class="code-punc">,</span>
           </div>

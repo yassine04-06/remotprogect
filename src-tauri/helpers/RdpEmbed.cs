@@ -206,6 +206,14 @@ namespace RdpEmbed
             {
                 try
                 {
+                    // Read credential from stdin (sent by Rust immediately after spawn).
+                    // This shadows the empty `password` constructor parameter.
+                    // Format: "CRED:<password>" — consumed before rdpClient.Connect().
+                    string credLine = Console.ReadLine() ?? "";
+                    string password = credLine.StartsWith("CRED:")
+                        ? credLine.Substring(5)
+                        : "";
+
                     // ── Step 1: Apply WS_POPUP + parent HWND FIRST ──────────
                     //
                     // SetWindowLong(WS_POPUP) can trigger WM_NCCALCSIZE and a
@@ -660,10 +668,11 @@ namespace RdpEmbed
             // coordinate mode so MoveWindow/GetWindowRect match Tauri's values.
             SetDpiAwareness();
 
-            if (args.Length < 8)
+            if (args.Length < 7)
             {
                 Console.Error.WriteLine(
-                    "Usage: RdpEmbed.exe <host> <port> <user> <pass> <parent_hwnd> <x> <y> <w> <h>");
+                    "Usage: RdpEmbed.exe <host> <port> <user> <parent_hwnd> <x> <y> <w> [<h>]");
+                Console.Error.WriteLine("Credential is sent via stdin as: CRED:<password>");
                 Environment.Exit(1);
                 return;
             }
@@ -674,16 +683,17 @@ namespace RdpEmbed
             string host  = args[0];
             int    port  = int.Parse(args[1]);
             string user  = args[2];
-            string pass  = args[3];
-            long   phwnd = long.Parse(args[4]);
-            int    px    = int.Parse(args[5]);
-            int    py    = int.Parse(args[6]);
-            int    pw    = int.Parse(args[7]);
-            int    ph    = args.Length > 8 ? int.Parse(args[8]) : 600;
+            // password NOT taken from args — received via stdin as "CRED:<pass>"
+            // to avoid exposure in the process command line (Task Manager / WMI).
+            long   phwnd = long.Parse(args[3]);
+            int    px    = int.Parse(args[4]);
+            int    py    = int.Parse(args[5]);
+            int    pw    = int.Parse(args[6]);
+            int    ph    = args.Length > 7 ? int.Parse(args[7]) : 600;
 
             try
             {
-                var form = new RdpForm(host, port, user, pass, phwnd, px, py, pw, ph);
+                var form = new RdpForm(host, port, user, "", phwnd, px, py, pw, ph);
                 Console.WriteLine("READY");
                 Console.Out.Flush();
                 Application.Run(form);

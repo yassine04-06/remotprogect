@@ -1,15 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["*"],
+  "description": "Capability for the main window — scoped to named window only (principle of least privilege).",
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "core:app:default",
     "opener:default",
     "core:window:default",
     "core:webview:default",
-    "core:webview:allow-create-webview-window",
     "updater:default",
     "dialog:default",
     "dialog:allow-open",

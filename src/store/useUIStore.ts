@@ -15,7 +15,7 @@ interface UIStore {
     toasts: ToastMessage[];
     isLoading: boolean;
     isFullscreen: boolean;
-    theme: 'default' | 'stealth' | 'matrix' | 'cyberpunk' | 'light';
+    theme: 'default' | 'stealth' | 'matrix' | 'cyberpunk' | 'light' | 'auto';
 
     // Dialog states
     showConnectionDialog: boolean;
@@ -27,6 +27,7 @@ interface UIStore {
     showCredentialManager: boolean;
     showCommandPalette: boolean;
     showAuditLog: boolean;
+    showTotpModal: boolean;
     showRecordings: boolean;
     showImportDialog: boolean;
 
@@ -50,6 +51,7 @@ interface UIStore {
     setShowCredentialManager: (show: boolean) => void;
     setShowCommandPalette: (show: boolean) => void;
     setShowAuditLog: (show: boolean) => void;
+    setShowTotpModal: (show: boolean) => void;
     setShowRecordings: (show: boolean) => void;
     setShowImportDialog: (v: boolean) => void;
 }
@@ -74,6 +76,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
     showCredentialManager: false,
     showCommandPalette: false,
     showAuditLog: false,
+    showTotpModal: false,
     showRecordings: false,
     showImportDialog: false,
 
@@ -105,6 +108,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
     setShowCredentialManager: show => set({ showCredentialManager: show }),
     setShowCommandPalette: show => set({ showCommandPalette: show }),
     setShowAuditLog: show => set({ showAuditLog: show }),
+    setShowTotpModal: show => set({ showTotpModal: show }),
     setShowRecordings: show => set({ showRecordings: show }),
     setShowImportDialog: (v) => set({ showImportDialog: v }),
 }));

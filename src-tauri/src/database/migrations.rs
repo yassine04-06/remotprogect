@@ -1,7 +1,7 @@
 use r2d2_sqlite;
 use rusqlite::{params, Connection, Result as SqlResult};
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 13;
+pub const CURRENT_SCHEMA_VERSION: i32 = 15;
 
 // ── Database Initialization ──────────────────────────────
 
@@ -102,6 +102,8 @@ fn run_migrations(conn: &Connection) -> SqlResult<()> {
         migrate_v11,
         migrate_v12,
         migrate_v13, // CRIT-A3: add chain_hash to audit_log
+        migrate_v14, // M2: add mac_address for Wake-on-LAN
+        migrate_v15, // M5: TOTP secrets table
     ];
 
     // Compile-time guard: MIGRATIONS.len() must equal CURRENT_SCHEMA_VERSION.
@@ -470,5 +472,24 @@ fn migrate_v13(conn: &Connection) -> SqlResult<()> {
     // CRIT-A3: add chain_hash column for tamper-evident hash-chain.
     // Existing rows get an empty string; audit_log_verify marks them "legacy".
     conn.execute_batch("ALTER TABLE audit_log ADD COLUMN chain_hash TEXT NOT NULL DEFAULT '';")?;
+    Ok(())
+}
+
+fn migrate_v14(conn: &Connection) -> SqlResult<()> {
+    // M2: optional MAC address for Wake-on-LAN.
+    conn.execute_batch("ALTER TABLE connections ADD COLUMN mac_address TEXT;")?;
+    Ok(())
+}
+
+fn migrate_v15(conn: &Connection) -> SqlResult<()> {
+    // M5: 2FA/TOTP secrets, encrypted at rest with the vault key.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS totp_secrets (
+            id TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            secret_encrypted TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );",
+    )?;
     Ok(())
 }

@@ -153,7 +153,8 @@ async fn authenticate(
             .await
             .map_err(|e| AppError::AuthFailed(format!("Password auth: {}", e)))?;
         if ok {
-            tracing::debug!("SSH: password auth OK ({})", username);
+            // Don't log the username (PII). The session id is enough to correlate.
+            tracing::debug!("SSH: password auth OK");
             return Ok(());
         }
     }
