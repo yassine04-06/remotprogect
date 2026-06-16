@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod commands;
 pub mod database;
 pub mod docker;
@@ -6,9 +7,6 @@ mod error;
 pub mod import;
 mod known_hosts;
 mod local_shell;
-pub mod telnet;
-pub mod backup;
-pub mod totp;
 mod locked_key;
 mod log_writer; // HIGH-A6: PII-scrubbing size+daily rotating log writer
 pub mod network;
@@ -17,7 +15,9 @@ pub mod rdp;
 pub mod sftp_ftp;
 pub mod ssh;
 mod state;
+pub mod telnet;
 pub mod tools;
+pub mod totp;
 pub mod vnc;
 mod vnc_client;
 

@@ -691,8 +691,10 @@ pub async fn docker_exec_start(
                     // M2: feed output into the asciicast recorder if active.
                     {
                         use tauri::Manager;
-                        if let Some(rec) =
-                            app_clone.state::<crate::state::AppState>().recording_sessions.get(&sid)
+                        if let Some(rec) = app_clone
+                            .state::<crate::state::AppState>()
+                            .recording_sessions
+                            .get(&sid)
                         {
                             if let Ok(mut g) = rec.lock() {
                                 let t = g.start_time.elapsed().as_secs_f64();

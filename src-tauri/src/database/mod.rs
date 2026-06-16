@@ -28,9 +28,7 @@ pub use credentials::{
     update_credential_profile,
 };
 
-pub use groups::{
-    create_group, delete_group, get_groups, update_group, update_group_parent,
-};
+pub use groups::{create_group, delete_group, get_groups, update_group, update_group_parent};
 
 pub use import_export::{export_all, import_all};
 
@@ -38,10 +36,9 @@ pub use migrations::{initialize_database, run_migrations_pub, CURRENT_SCHEMA_VER
 
 pub use models::{
     AuditEntry, AuditVerifyEntry, AuditVerifyResult, CreateConnectionRequest,
-    CreateCredentialProfileRequest, CreateSshKeyRequest, CreateSavedCommandRequest,
-    CredentialProfile, CredentialType, ExportData, Group, SavedCommand, ServerConnection,
-    SshKey, SshTunnel, UpdateConnectionRequest, UpdateCredentialProfileRequest,
-    UpdateSavedCommandRequest,
+    CreateCredentialProfileRequest, CreateSavedCommandRequest, CreateSshKeyRequest,
+    CredentialProfile, CredentialType, ExportData, Group, SavedCommand, ServerConnection, SshKey,
+    SshTunnel, UpdateConnectionRequest, UpdateCredentialProfileRequest, UpdateSavedCommandRequest,
 };
 
 pub use saved_commands::{
@@ -76,7 +73,8 @@ pub fn migrate_legacy_ciphertexts_to_v2(
                         "SELECT id, password_encrypted, private_key_encrypted FROM connections",
                     )
                     .map_err(|e| format!("prepare connections: {}", e))?;
-                let x = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                let x = stmt
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
                     .map_err(|e| format!("query connections: {}", e))?
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|e| format!("collect connections: {}", e))?;
@@ -116,7 +114,8 @@ pub fn migrate_legacy_ciphertexts_to_v2(
                          FROM credential_profiles",
                     )
                     .map_err(|e| format!("prepare credential_profiles: {}", e))?;
-                let x = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                let x = stmt
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
                     .map_err(|e| format!("query credential_profiles: {}", e))?
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|e| format!("collect credential_profiles: {}", e))?;
@@ -153,7 +152,8 @@ pub fn migrate_legacy_ciphertexts_to_v2(
                 let mut stmt = conn
                     .prepare("SELECT id, private_key_encrypted FROM ssh_keys")
                     .map_err(|e| format!("prepare ssh_keys: {}", e))?;
-                let x = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                let x = stmt
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
                     .map_err(|e| format!("query ssh_keys: {}", e))?
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|e| format!("collect ssh_keys: {}", e))?;

@@ -4,6 +4,7 @@
 
 use remote_manager_lib::commands::credentials::ResolvedCredentials;
 use remote_manager_lib::commands::recording::RecordingInfo;
+use remote_manager_lib::commands::ssh_keys::SshKeyCreateRequest;
 use remote_manager_lib::commands::vault::VaultStatus;
 use remote_manager_lib::database::{
     AuditEntry, AuditVerifyEntry, AuditVerifyResult, ConnectionSummary, CreateConnectionRequest,
@@ -11,17 +12,16 @@ use remote_manager_lib::database::{
     CredentialProfile, CredentialType, ExportData, Group, SavedCommand, ServerConnection, SshKey,
     SshTunnel, UpdateConnectionRequest, UpdateCredentialProfileRequest, UpdateSavedCommandRequest,
 };
-use remote_manager_lib::commands::ssh_keys::SshKeyCreateRequest;
 use remote_manager_lib::docker::DockerContainer;
 use remote_manager_lib::import::ImportedConnection;
-use remote_manager_lib::proxmox::ProxmoxPinnedCert;
-use remote_manager_lib::totp::TotpCode;
 use remote_manager_lib::network::NetworkScanResult;
+use remote_manager_lib::proxmox::ProxmoxPinnedCert;
 use remote_manager_lib::proxmox::{ProxmoxAuthResponse, ProxmoxResource};
 use remote_manager_lib::rdp::RdpAvailability;
 use remote_manager_lib::sftp_ftp::{FileListResult, FileNode};
 use remote_manager_lib::ssh::{SshDataEvent, SshStatusEvent};
 use remote_manager_lib::tools::ToolResult;
+use remote_manager_lib::totp::TotpCode;
 use remote_manager_lib::vnc::VncAvailability;
 use ts_rs::{Config, TS};
 

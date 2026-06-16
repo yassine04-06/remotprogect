@@ -32,8 +32,9 @@ fn data_dir() -> PathBuf {
 // ── Vault unlock ──────────────────────────────────────────────────────────────
 
 fn unlock(dir: &Path) -> Result<[u8; 32], BoxErr> {
-    let raw = std::fs::read_to_string(dir.join("config.json"))
-        .map_err(|_| "vault not initialised — open NexoRC desktop app first to set up your vault")?;
+    let raw = std::fs::read_to_string(dir.join("config.json")).map_err(|_| {
+        "vault not initialised — open NexoRC desktop app first to set up your vault"
+    })?;
 
     let v: serde_json::Value = serde_json::from_str(&raw)?;
 
@@ -113,9 +114,11 @@ fn cmd_connect(dir: &Path, name: &str) -> Result<(), BoxErr> {
 
     if conn.protocol != "SSH" {
         key.zeroize();
-        return Err(
-            format!("'connect' supports SSH only (this connection is {})", conn.protocol).into(),
-        );
+        return Err(format!(
+            "'connect' supports SSH only (this connection is {})",
+            conn.protocol
+        )
+        .into());
     }
 
     let mut cmd = std::process::Command::new("ssh");
@@ -156,9 +159,14 @@ fn cmd_connect(dir: &Path, name: &str) -> Result<(), BoxErr> {
     key.zeroize();
 
     cmd.arg(format!("{}@{}", conn.username, conn.host));
-    eprintln!("[nexorc] Connecting: {} ({}@{}:{})", conn.name, conn.username, conn.host, conn.port);
+    eprintln!(
+        "[nexorc] Connecting: {} ({}@{}:{})",
+        conn.name, conn.username, conn.host, conn.port
+    );
 
-    let status = cmd.status().map_err(|e| format!("failed to launch ssh: {e}"))?;
+    let status = cmd
+        .status()
+        .map_err(|e| format!("failed to launch ssh: {e}"))?;
 
     // _guards dropped here → temp files deleted
     std::process::exit(status.code().unwrap_or(1));
@@ -251,9 +259,11 @@ async fn cmd_exec_async(dir: &Path, name: &str, cmd_str: &str) -> Result<(), Box
 
     if conn.protocol != "SSH" {
         key.zeroize();
-        return Err(
-            format!("'exec' supports SSH only (this connection is {})", conn.protocol).into(),
-        );
+        return Err(format!(
+            "'exec' supports SSH only (this connection is {})",
+            conn.protocol
+        )
+        .into());
     }
 
     let host = conn.host.clone();
@@ -265,11 +275,10 @@ async fn cmd_exec_async(dir: &Path, name: &str, cmd_str: &str) -> Result<(), Box
             .private_key_encrypted
             .as_deref()
             .ok_or("no stored private key")?;
-        let pem =
-            encryption::decrypt_auto(enc, &key).map_err(|e| format!("key decrypt: {e}"))?;
+        let pem = encryption::decrypt_auto(enc, &key).map_err(|e| format!("key decrypt: {e}"))?;
         key.zeroize();
-        let kp = russh_keys::decode_secret_key(&pem, None)
-            .map_err(|e| format!("key parse: {e}"))?;
+        let kp =
+            russh_keys::decode_secret_key(&pem, None).map_err(|e| format!("key parse: {e}"))?;
         (Some(kp), None)
     } else {
         let pw = conn

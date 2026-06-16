@@ -30,8 +30,14 @@ pub(crate) const KEY_LEN: usize = 32;
 /// the first successful unlock.
 #[derive(Clone, Debug)]
 pub enum KdfParams {
-    Pbkdf2 { iterations: u32 },
-    Argon2id { m_cost: u32, t_cost: u32, p_cost: u32 },
+    Pbkdf2 {
+        iterations: u32,
+    },
+    Argon2id {
+        m_cost: u32,
+        t_cost: u32,
+        p_cost: u32,
+    },
 }
 
 impl KdfParams {
@@ -55,7 +61,11 @@ impl KdfParams {
                 "algorithm": "pbkdf2-hmac-sha256",
                 "iterations": iterations,
             }),
-            KdfParams::Argon2id { m_cost, t_cost, p_cost } => serde_json::json!({
+            KdfParams::Argon2id {
+                m_cost,
+                t_cost,
+                p_cost,
+            } => serde_json::json!({
                 "algorithm": "argon2id",
                 "m_cost": m_cost,
                 "t_cost": t_cost,
@@ -71,16 +81,26 @@ impl KdfParams {
     pub fn from_config(kdf: &serde_json::Value, salt_present: bool) -> Self {
         match kdf["algorithm"].as_str() {
             Some("argon2id") => KdfParams::Argon2id {
-                m_cost: kdf["m_cost"].as_u64().unwrap_or(DEFAULT_ARGON2_M_COST as u64) as u32,
-                t_cost: kdf["t_cost"].as_u64().unwrap_or(DEFAULT_ARGON2_T_COST as u64) as u32,
-                p_cost: kdf["p_cost"].as_u64().unwrap_or(DEFAULT_ARGON2_P_COST as u64) as u32,
+                m_cost: kdf["m_cost"]
+                    .as_u64()
+                    .unwrap_or(DEFAULT_ARGON2_M_COST as u64) as u32,
+                t_cost: kdf["t_cost"]
+                    .as_u64()
+                    .unwrap_or(DEFAULT_ARGON2_T_COST as u64) as u32,
+                p_cost: kdf["p_cost"]
+                    .as_u64()
+                    .unwrap_or(DEFAULT_ARGON2_P_COST as u64) as u32,
             },
             _ => KdfParams::Pbkdf2 {
                 iterations: kdf["iterations"]
                     .as_u64()
                     .map(|n| n as u32)
                     .unwrap_or_else(|| {
-                        if salt_present { 100_000 } else { DEFAULT_KDF_ITERATIONS }
+                        if salt_present {
+                            100_000
+                        } else {
+                            DEFAULT_KDF_ITERATIONS
+                        }
                     }),
             },
         }
@@ -99,14 +119,14 @@ pub fn derive_key_params(
             pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, *iterations, &mut key);
             Ok(key)
         }
-        KdfParams::Argon2id { m_cost, t_cost, p_cost } => {
+        KdfParams::Argon2id {
+            m_cost,
+            t_cost,
+            p_cost,
+        } => {
             let p = Argon2Params::new(*m_cost, *t_cost, *p_cost, Some(KEY_LEN))
                 .map_err(|e| format!("Argon2id params error: {e}"))?;
-            let argon2 = Argon2::new(
-                argon2::Algorithm::Argon2id,
-                argon2::Version::V0x13,
-                p,
-            );
+            let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, p);
             let mut key = [0u8; KEY_LEN];
             argon2
                 .hash_password_into(password.as_bytes(), salt, &mut key)

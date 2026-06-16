@@ -529,8 +529,8 @@ pub fn launch_rdp_mstsc(
         if !password.is_empty() {
             // Write password to a 0600 temp file; xfreerdp reads it via /passwd-file.
             // Avoids passing the credential on the process command line.
-            let tmp_pass = std::env::temp_dir()
-                .join(format!("nexorc_rdp_{}.tmp", uuid::Uuid::new_v4()));
+            let tmp_pass =
+                std::env::temp_dir().join(format!("nexorc_rdp_{}.tmp", uuid::Uuid::new_v4()));
             std::fs::write(&tmp_pass, password)
                 .map_err(|e| format!("Failed to write RDP passwd-file: {}", e))?;
             #[cfg(unix)]

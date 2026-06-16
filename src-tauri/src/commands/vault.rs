@@ -242,9 +242,8 @@ pub fn change_master_password(
     };
     let old_kdf = state.kdf_params.read().map_err(lock_err)?.clone();
 
-    let mut old_key =
-        encryption::derive_key_params(secret_old.expose_secret(), &salt, &old_kdf)
-            .map_err(crate::error::AppError::Internal)?;
+    let mut old_key = encryption::derive_key_params(secret_old.expose_secret(), &salt, &old_kdf)
+        .map_err(crate::error::AppError::Internal)?;
     if !encryption::verify_master_password(&token, &old_key) {
         old_key.zeroize();
         tracing::warn!("change_master_password rejected: old password incorrect");
@@ -256,8 +255,12 @@ pub fn change_master_password(
     let new_salt = encryption::generate_salt();
     let new_kdf = encryption::KdfParams::default_argon2id();
     let mut new_key =
-        encryption::derive_key_params(secret_new.expose_secret(), &new_salt, &new_kdf)
-            .map_err(|e| { old_key.zeroize(); crate::error::AppError::Internal(e) })?;
+        encryption::derive_key_params(secret_new.expose_secret(), &new_salt, &new_kdf).map_err(
+            |e| {
+                old_key.zeroize();
+                crate::error::AppError::Internal(e)
+            },
+        )?;
     let new_token = encryption::create_verification_token(&new_key)?;
 
     {
@@ -457,10 +460,14 @@ fn migrate_kdf_to_argon2id(
     let result: Result<(), String> = (|| {
         let connections = database::get_connections(&db).map_err(|e| e.to_string())?;
         for c in &connections {
-            let new_pwd = c.password_encrypted.as_ref()
+            let new_pwd = c
+                .password_encrypted
+                .as_ref()
                 .and_then(|ct| encryption::decrypt_auto(ct, old_key).ok())
                 .and_then(|pt| encryption::encrypt_v2(&pt, &new_key).ok());
-            let new_key_blob = c.private_key_encrypted.as_ref()
+            let new_key_blob = c
+                .private_key_encrypted
+                .as_ref()
                 .and_then(|ct| encryption::decrypt_auto(ct, old_key).ok())
                 .and_then(|pt| encryption::encrypt_v2(&pt, &new_key).ok());
             if new_pwd.is_some() || new_key_blob.is_some() {
@@ -473,10 +480,14 @@ fn migrate_kdf_to_argon2id(
 
         let profiles = database::get_credential_profiles(&db).map_err(|e| e.to_string())?;
         for p in &profiles {
-            let new_pwd = p.password_encrypted.as_ref()
+            let new_pwd = p
+                .password_encrypted
+                .as_ref()
                 .and_then(|ct| encryption::decrypt_auto(ct, old_key).ok())
                 .and_then(|pt| encryption::encrypt_v2(&pt, &new_key).ok());
-            let new_key_blob = p.private_key_encrypted.as_ref()
+            let new_key_blob = p
+                .private_key_encrypted
+                .as_ref()
                 .and_then(|ct| encryption::decrypt_auto(ct, old_key).ok())
                 .and_then(|pt| encryption::encrypt_v2(&pt, &new_key).ok());
             if new_pwd.is_some() || new_key_blob.is_some() {
@@ -496,7 +507,8 @@ fn migrate_kdf_to_argon2id(
                 db.execute(
                     "UPDATE ssh_keys SET private_key_encrypted=?1 WHERE id=?2",
                     rusqlite::params![enc, k.id],
-                ).map_err(|e| e.to_string())?;
+                )
+                .map_err(|e| e.to_string())?;
             }
         }
 
@@ -521,9 +533,10 @@ fn migrate_kdf_to_argon2id(
     let config_str = std::fs::read_to_string(&state.config_path).unwrap_or_default();
     let mut config: serde_json::Value =
         serde_json::from_str(&config_str).unwrap_or_else(|_| serde_json::json!({}));
-    config["salt"] = serde_json::json!(
-        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, new_salt)
-    );
+    config["salt"] = serde_json::json!(base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        new_salt
+    ));
     config["verification_token"] = serde_json::json!(&new_token);
     config["kdf"] = new_kdf.to_config_json();
 
@@ -538,10 +551,18 @@ fn migrate_kdf_to_argon2id(
     restrict_config_perms(&state.config_path);
 
     // Commit AppState atomically enough for a single-threaded desktop app.
-    if let Ok(mut g) = state.encryption_key.write() { *g = Some(MlockedKey::new(new_key)); }
-    if let Ok(mut g) = state.salt.write() { *g = Some(new_salt.to_vec()); }
-    if let Ok(mut g) = state.verification_token.write() { *g = Some(new_token); }
-    if let Ok(mut g) = state.kdf_params.write() { *g = new_kdf; }
+    if let Ok(mut g) = state.encryption_key.write() {
+        *g = Some(MlockedKey::new(new_key));
+    }
+    if let Ok(mut g) = state.salt.write() {
+        *g = Some(new_salt.to_vec());
+    }
+    if let Ok(mut g) = state.verification_token.write() {
+        *g = Some(new_token);
+    }
+    if let Ok(mut g) = state.kdf_params.write() {
+        *g = new_kdf;
+    }
 
     tracing::info!(
         "KDF migrated PBKDF2 → Argon2id (m={} KiB, t={}, p={}) on unlock",
@@ -660,7 +681,10 @@ pub fn unlock_vault(
     // Non-fatal: decrypt_auto still handles v1 if migration fails (e.g. DB busy).
     let cfg_str = std::fs::read_to_string(&state.config_path).unwrap_or_default();
     let mut cfg: serde_json::Value = serde_json::from_str(&cfg_str).unwrap_or_default();
-    let already_migrated = cfg.get("ciphertext_v2_migrated").and_then(|v| v.as_bool()).unwrap_or(false);
+    let already_migrated = cfg
+        .get("ciphertext_v2_migrated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if !already_migrated {
         if let Ok(db) = state.db.get() {
             match database::migrate_legacy_ciphertexts_to_v2(&db, &key) {

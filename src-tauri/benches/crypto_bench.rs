@@ -12,7 +12,13 @@ fn bench_argon2id(c: &mut Criterion) {
     let salt = [0x42u8; 16];
     let params = KdfParams::default_argon2id();
     c.bench_function("argon2id_derive_key", |b| {
-        b.iter(|| derive_key_params(black_box("correct horse battery staple"), black_box(&salt), &params))
+        b.iter(|| {
+            derive_key_params(
+                black_box("correct horse battery staple"),
+                black_box(&salt),
+                &params,
+            )
+        })
     });
 }
 

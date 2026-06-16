@@ -29,8 +29,8 @@ pub async fn vault_backup(
         let file = std::fs::File::create(&target)
             .map_err(|e| format!("Cannot create backup file: {}", e))?;
         let mut zip = zip::ZipWriter::new(file);
-        let opts = SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
+        let opts =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         let mut count = 0usize;
 
         for name in BACKUP_FILES {
@@ -46,7 +46,10 @@ pub async fn vault_backup(
         // recordings/ — recurse one level (flat directory of .cast/.cast.enc).
         let rec_dir = Path::new(&data_dir).join("recordings");
         if rec_dir.is_dir() {
-            for entry in std::fs::read_dir(&rec_dir).map_err(|e| e.to_string())?.flatten() {
+            for entry in std::fs::read_dir(&rec_dir)
+                .map_err(|e| e.to_string())?
+                .flatten()
+            {
                 if entry.path().is_file() {
                     let fname = entry.file_name().to_string_lossy().to_string();
                     zip.start_file(format!("recordings/{}", fname), opts)
@@ -85,10 +88,10 @@ pub async fn vault_restore(
         let _ = std::fs::remove_dir_all(&staging);
         std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
 
-        let file = std::fs::File::open(&source)
-            .map_err(|e| format!("Cannot open backup: {}", e))?;
-        let mut archive = zip::ZipArchive::new(file)
-            .map_err(|e| format!("Invalid backup archive: {}", e))?;
+        let file =
+            std::fs::File::open(&source).map_err(|e| format!("Cannot open backup: {}", e))?;
+        let mut archive =
+            zip::ZipArchive::new(file).map_err(|e| format!("Invalid backup archive: {}", e))?;
         let mut count = 0usize;
 
         for i in 0..archive.len() {
@@ -146,7 +149,11 @@ pub fn apply_staged_restore(data_dir: &Path) -> Result<(), String> {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         ) {
             let ver: i32 = conn
-                .query_row("SELECT COALESCE(MAX(version), 0) FROM schema_version", [], |r| r.get(0))
+                .query_row(
+                    "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+                    [],
+                    |r| r.get(0),
+                )
                 .unwrap_or(0);
             if ver > crate::database::CURRENT_SCHEMA_VERSION {
                 return Err(format!(
@@ -205,8 +212,17 @@ mod tests {
 
         apply_staged_restore(dir.path()).unwrap();
 
-        assert_eq!(std::fs::read(dir.path().join("connections.db")).unwrap(), b"NEWDB");
-        assert_eq!(std::fs::read(dir.path().join("recordings/a.cast")).unwrap(), b"REC");
-        assert!(!staging.exists(), "staging dir should be removed after apply");
+        assert_eq!(
+            std::fs::read(dir.path().join("connections.db")).unwrap(),
+            b"NEWDB"
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("recordings/a.cast")).unwrap(),
+            b"REC"
+        );
+        assert!(
+            !staging.exists(),
+            "staging dir should be removed after apply"
+        );
     }
 }

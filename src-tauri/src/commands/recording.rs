@@ -67,8 +67,9 @@ pub fn ssh_recording_stop(
             .read()
             .map_err(|_| crate::error::AppError::Internal("Encryption key lock poisoned".into()))?;
         if let Some(mlocked) = key_guard.as_ref() {
-            crate::encryption::encrypt_v2(&cast, mlocked.expose())
-                .map_err(|e| crate::error::AppError::Internal(format!("Encrypt recording: {}", e)))?
+            crate::encryption::encrypt_v2(&cast, mlocked.expose()).map_err(|e| {
+                crate::error::AppError::Internal(format!("Encrypt recording: {}", e))
+            })?
         } else {
             tracing::warn!("ssh_recording_stop: vault locked — saving recording unencrypted");
             cast

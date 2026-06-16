@@ -72,7 +72,10 @@ fn generate(secret_b32: &str) -> Result<(String, u32), String> {
         | (u32::from(hash[offset + 2]) << 8)
         | u32::from(hash[offset + 3]);
     let code = bin % 10u32.pow(DIGITS);
-    Ok((format!("{:0width$}", code, width = DIGITS as usize), remaining))
+    Ok((
+        format!("{:0width$}", code, width = DIGITS as usize),
+        remaining,
+    ))
 }
 
 /// Adds a TOTP entry. `secret_b32` is validated then stored vault-encrypted.
@@ -85,7 +88,10 @@ pub fn totp_add(
     // Validate the secret can produce a code before persisting.
     generate(&secret_b32)?;
 
-    let key_guard = state.encryption_key.read().map_err(|_| "Lock poisoned".to_string())?;
+    let key_guard = state
+        .encryption_key
+        .read()
+        .map_err(|_| "Lock poisoned".to_string())?;
     let key = key_guard.as_ref().ok_or("Vault locked")?.expose();
     let enc = encryption::encrypt_v2(secret_b32.trim(), key)?;
     drop(key_guard);
@@ -107,8 +113,15 @@ pub fn totp_add(
 /// Lists all TOTP entries with their current codes.
 #[tauri::command]
 pub fn totp_list(state: tauri::State<crate::state::AppState>) -> Result<Vec<TotpCode>, String> {
-    let key_guard = state.encryption_key.read().map_err(|_| "Lock poisoned".to_string())?;
-    let key = key_guard.as_ref().ok_or("Vault locked")?.expose().to_owned();
+    let key_guard = state
+        .encryption_key
+        .read()
+        .map_err(|_| "Lock poisoned".to_string())?;
+    let key = key_guard
+        .as_ref()
+        .ok_or("Vault locked")?
+        .expose()
+        .to_owned();
     drop(key_guard);
 
     let conn = state.db.get().map_err(|e| format!("DB pool: {}", e))?;
@@ -131,7 +144,12 @@ pub fn totp_list(state: tauri::State<crate::state::AppState>) -> Result<Vec<Totp
             Err(_) => continue,
         };
         if let Ok((code, remaining)) = generate(&secret) {
-            out.push(TotpCode { id, label, code, seconds_remaining: remaining });
+            out.push(TotpCode {
+                id,
+                label,
+                code,
+                seconds_remaining: remaining,
+            });
         }
     }
     Ok(out)
@@ -141,8 +159,11 @@ pub fn totp_list(state: tauri::State<crate::state::AppState>) -> Result<Vec<Totp
 #[tauri::command]
 pub fn totp_delete(state: tauri::State<crate::state::AppState>, id: String) -> Result<(), String> {
     let conn = state.db.get().map_err(|e| format!("DB pool: {}", e))?;
-    conn.execute("DELETE FROM totp_secrets WHERE id = ?1", rusqlite::params![id])
-        .map_err(|e| format!("delete totp: {}", e))?;
+    conn.execute(
+        "DELETE FROM totp_secrets WHERE id = ?1",
+        rusqlite::params![id],
+    )
+    .map_err(|e| format!("delete totp: {}", e))?;
     Ok(())
 }
 

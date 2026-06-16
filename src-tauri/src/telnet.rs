@@ -151,7 +151,11 @@ fn process_iac(input: &[u8]) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
                 if i + 2 >= input.len() {
                     return (clean, reply, input[i..].to_vec());
                 }
-                let answer = if matches!(input[i + 1], DO | DONT) { WONT } else { DONT };
+                let answer = if matches!(input[i + 1], DO | DONT) {
+                    WONT
+                } else {
+                    DONT
+                };
                 reply.extend_from_slice(&[IAC, answer, input[i + 2]]);
                 i += 3;
             }

@@ -149,7 +149,10 @@ pub fn create_connection(
     Ok(res)
 }
 
-pub fn update_connection(conn: &Connection, req: UpdateConnectionRequest) -> Result<ServerConnection, String> {
+pub fn update_connection(
+    conn: &Connection,
+    req: UpdateConnectionRequest,
+) -> Result<ServerConnection, String> {
     let now = Utc::now().to_rfc3339();
     let tunnels_json = req
         .ssh_tunnels

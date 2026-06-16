@@ -157,8 +157,10 @@ pub fn spawn_local_shell(app: &AppHandle, session_id: &str) -> Result<LocalShell
                     // for this session (recorder is protocol-agnostic).
                     {
                         use tauri::Manager;
-                        if let Some(rec) =
-                            app_clone.state::<crate::state::AppState>().recording_sessions.get(&sid)
+                        if let Some(rec) = app_clone
+                            .state::<crate::state::AppState>()
+                            .recording_sessions
+                            .get(&sid)
                         {
                             if let Ok(mut g) = rec.lock() {
                                 let t = g.start_time.elapsed().as_secs_f64();

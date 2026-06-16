@@ -375,7 +375,11 @@ fn run_vnc_session(
                 security_type: Some(sec_type),
             },
         );
-        tracing::warn!("VNC session {}: unencrypted, sec_type={}", session_id, sec_type);
+        tracing::warn!(
+            "VNC session {}: unencrypted, sec_type={}",
+            session_id,
+            sec_type
+        );
     }
 
     let (width, height, name) = rfb_client_init(&mut stream)?;
@@ -484,17 +488,25 @@ fn run_vnc_session(
                                         image::ExtendedColorType::Rgb8,
                                     )
                                     .map_err(|e| format!("JPEG encode error: {}", e))?;
-                                let b64 = base64::engine::general_purpose::STANDARD
-                                    .encode(&jpeg_bytes);
+                                let b64 =
+                                    base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
                                 frame_rects.push(VncRectItem::Jpeg {
-                                    x, y, width: w, height: h, data: b64,
+                                    x,
+                                    y,
+                                    width: w,
+                                    height: h,
+                                    data: b64,
                                 });
                             } else {
                                 // Small rect — raw RGBA is more efficient (no JPEG overhead).
-                                let b64 = base64::engine::general_purpose::STANDARD
-                                    .encode(&pixel_data);
+                                let b64 =
+                                    base64::engine::general_purpose::STANDARD.encode(&pixel_data);
                                 frame_rects.push(VncRectItem::Raw {
-                                    x, y, width: w, height: h, data: b64,
+                                    x,
+                                    y,
+                                    width: w,
+                                    height: h,
+                                    data: b64,
                                 });
                             }
                         }
@@ -506,7 +518,12 @@ fn run_vnc_session(
                             let src_x = u16::from_be_bytes([buf[0], buf[1]]);
                             let src_y = u16::from_be_bytes([buf[2], buf[3]]);
                             frame_rects.push(VncRectItem::Copyrect {
-                                x, y, width: w, height: h, src_x, src_y,
+                                x,
+                                y,
+                                width: w,
+                                height: h,
+                                src_x,
+                                src_y,
                             });
                         }
                         _ => {
