@@ -69,13 +69,15 @@ jobs:
         run: cargo test
 
   # ── Dependency advisory audit ────────────────────────────
-  # Flags known CVEs / yanked crates in the dependency tree. Non-blocking
-  # (continue-on-error) so a fresh advisory doesn't break unrelated PRs, but
-  # surfaces in the Actions log for triage.
+  # Real quality gate: fails on any NEW vulnerability. A small set of advisories
+  # is explicitly accepted via --ignore, each documented below. Review on bumps.
+  #   RUSTSEC-2023-0071  rsa Marvin timing side-channel — no upstream fix exists
+  #   RUSTSEC-2026-0154  russh unbounded alloc — CLI-only; fix needs russh>=0.60 (major break)
+  #   RUSTSEC-2026-0153  russh-cryptovec — same root cause as above
+  # (Unmaintained-crate warnings come from Tauri's GTK3 tree and are informational.)
   audit:
     name: cargo audit
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -87,7 +89,11 @@ jobs:
 
       - name: Run cargo audit
         working-directory: src-tauri
-        run: cargo audit
+        run: >
+          cargo audit
+          --ignore RUSTSEC-2023-0071
+          --ignore RUSTSEC-2026-0154
+          --ignore RUSTSEC-2026-0153
 
   # ── SBOM (CycloneDX) ─────────────────────────────────────
   # Software Bill of Materials for supply-chain transparency. Generated on
